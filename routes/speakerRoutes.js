@@ -6,7 +6,9 @@ const {
   getDashboard,
   updateProfile,
   updateAvailability,
-  uploadAvatar
+  uploadAvatar,
+  rateLearner,
+  getGiftSong
 } = require('../controllers/speakerController');
 
 // Multer configuration for avatar upload
@@ -35,6 +37,10 @@ router.get('/dashboard', getDashboard);
 router.put('/profile', updateProfile);
 router.put('/availability', updateAvailability);
 router.post('/avatar', upload.single('avatar'), uploadAvatar);
+
+// Session rating routes
+router.post('/sessions/:id/review', rateLearner);
+router.get('/gift-song', getGiftSong);
 
 module.exports = router;
 

@@ -305,11 +305,164 @@ const getSpeakerProfile = async (req, res) => {
   }
 };
 
+// @desc    Rate and review a learner after completing a session
+// @route   POST /api/speaker/sessions/:id/review
+// @access  Private (Speaker)
+const rateLearner = async (req, res) => {
+  try {
+    const sessionId = req.params.id;
+    const userId = req.user._id;
+    const { rating, comment } = req.body;
+
+    // Validate input
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rating must be between 1 and 5'
+      });
+    }
+
+    if (!comment || comment.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Review comment is required'
+      });
+    }
+
+    // Find the session
+    const session = await Session.findOne({
+      _id: sessionId,
+      speaker: userId,
+      status: 'completed'
+    });
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found or not completed'
+      });
+    }
+
+    // Check if review already exists
+    const existingReview = await Review.findOne({
+      session: sessionId,
+      from: userId
+    });
+
+    if (existingReview) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already reviewed this session'
+      });
+    }
+
+    // Create the review
+    const review = await Review.create({
+      session: sessionId,
+      from: userId,
+      to: session.learner,
+      rating,
+      comment: comment.trim()
+    });
+
+    // Populate the review
+    await review.populate('to', 'firstname lastname');
+
+    res.json({
+      success: true,
+      message: 'Review submitted successfully',
+      data: { review }
+    });
+  } catch (error) {
+    console.error('Rate learner error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
+// @desc    Get a random YouTube song (no repeats for the user)
+// @route   GET /api/speaker/gift-song
+// @access  Private (Speaker)
+const getGiftSong = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Predefined YouTube playlist - you can customize this
+    const playlist = [
+      { id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up' }, // Rick Astley
+      { id: '9bZkp7q19f0', title: 'Gangnam Style' }, // PSY
+      { id: 'kJQP7kiw5Fk', title: 'Despacito' }, // Luis Fonsi
+      { id: 'YQHsXMglC9A', title: 'Hello' }, // Adele
+      { id: 'fo0X6KoRO1GY', title: 'Shape of You' }, // Ed Sheeran
+      { id: 'fJ9rUzIMcZQ', title: 'Bohemian Rhapsody' }, // Queen
+      { id: 'kJQP7kiw5Fk', title: 'Despacito' }, // Luis Fonsi
+      { id: 'RgKAFK5djSk', title: 'See You Again' }, // Wiz Khalifa
+      { id: 'uE-1RPDqJAY', title: 'Baby' }, // Justin Bieber
+      { id: 'IOuAbP6nuOM', title: 'Roar' }, // Katy Perry
+    ];
+
+    // Get user's viewed songs
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Filter out already viewed songs
+    const viewedSongs = user.viewedSongs || [];
+    const availableSongs = playlist.filter(song => !viewedSongs.includes(song.id));
+
+    // If all songs have been viewed, reset and shuffle (optional behavior)
+    let songToReturn;
+    if (availableSongs.length === 0) {
+      // Reset viewed songs and pick randomly from full playlist
+      user.viewedSongs = [];
+      await user.save();
+      const randomIndex = Math.floor(Math.random() * playlist.length);
+      songToReturn = playlist[randomIndex];
+    } else {
+      // Pick a random song from available ones
+      const randomIndex = Math.floor(Math.random() * availableSongs.length);
+      songToReturn = availableSongs[randomIndex];
+    }
+
+    // Mark this song as viewed
+    if (!user.viewedSongs.includes(songToReturn.id)) {
+      user.viewedSongs.push(songToReturn.id);
+      await user.save();
+    }
+
+    // Return YouTube URL
+    const youtubeUrl = `https://www.youtube.com/watch?v=${songToReturn.id}`;
+
+    res.json({
+      success: true,
+      data: {
+        url: youtubeUrl,
+        videoId: songToReturn.id,
+        title: songToReturn.title
+      }
+    });
+  } catch (error) {
+    console.error('Get gift song error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
 module.exports = {
   getDashboard,
   updateProfile,
   updateAvailability,
   uploadAvatar,
   getSpeakers,
-  getSpeakerProfile
+  getSpeakerProfile,
+  rateLearner,
+  getGiftSong
 };

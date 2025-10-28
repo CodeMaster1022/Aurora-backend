@@ -4,6 +4,7 @@ const Review = require('../models/Review');
 const { uploadImage } = require('../utils/cloudinary');
 const { createCalendarEvent, getRandomIcebreaker, generateMeetLink } = require('../utils/googleCalendar');
 const { sendSessionEmails } = require('../utils/emailService');
+const { createDonationCheckout } = require('../utils/stripe');
 
 // @desc    Get learner dashboard data
 // @route   GET /api/learner/dashboard
@@ -377,12 +378,66 @@ const bookSession = async (req, res) => {
   }
 };
 
+// @desc    Create Stripe checkout session for donation
+// @route   POST /api/learner/create-donation
+// @access  Private (Learner)
+const createDonation = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { amount = 500 } = req.body; // Default $5.00
+
+    // Get user to get their email
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Create success and cancel URLs
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const successUrl = `${baseUrl}/learners/dashboard?donation=success`;
+    const cancelUrl = `${baseUrl}/learners/dashboard?donation=cancelled`;
+
+    // Create Stripe checkout session
+    const checkoutResult = await createDonationCheckout({
+      customerEmail: user.email,
+      amount: Math.round(amount), // Ensure it's an integer (cents)
+      successUrl,
+      cancelUrl
+    });
+
+    if (!checkoutResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: checkoutResult.error || 'Failed to create checkout session'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        sessionId: checkoutResult.sessionId,
+        url: checkoutResult.url
+      }
+    });
+  } catch (error) {
+    console.error('Create donation error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
 module.exports = {
   getDashboard,
   getSession,
   rateSession,
   updateProfile,
   uploadAvatar,
-  bookSession
+  bookSession,
+  createDonation
 };
 

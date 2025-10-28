@@ -74,6 +74,10 @@ const userSchema = new mongoose.Schema({
       type: Boolean,
       default: true
     }
+  }],
+  // Track viewed YouTube songs to prevent repeats
+  viewedSongs: [{
+    type: String // YouTube video IDs
   }]
 }, {
   timestamps: true

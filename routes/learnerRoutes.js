@@ -8,7 +8,8 @@ const {
   rateSession,
   updateProfile,
   uploadAvatar,
-  bookSession
+  bookSession,
+  createDonation
 } = require('../controllers/learnerController');
 
 // Multer configuration for avatar upload
@@ -40,6 +41,9 @@ router.post('/sessions/:id/review', rateSession);
 // Profile routes
 router.put('/profile', updateProfile);
 router.post('/avatar', upload.single('avatar'), uploadAvatar);
+
+// Donation route
+router.post('/create-donation', createDonation);
 
 module.exports = router;
 
