@@ -15,9 +15,6 @@
   ],
   "author": "",
   "license": "ISC",
-  "engines": {
-    "node": "18.x"
-  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.8.0",
