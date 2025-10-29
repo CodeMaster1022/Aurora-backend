@@ -23,7 +23,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Database connection
 const connectDB = async () => {
@@ -39,11 +39,13 @@ const connectDB = async () => {
 connectDB();
 
 // Create uploads directory if it doesn't exist
+/*
 const fs = require('fs');
 const uploadsDir = path.join(__dirname, 'uploads', 'avatars');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+*/
 
 // Debug logging middleware
 app.use((req, res, next) => {
@@ -100,11 +102,13 @@ app.use((req, res) => {
 });
 
 // Start server
+/*
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
+*/
 
 module.exports = app;
