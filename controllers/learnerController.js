@@ -2,7 +2,13 @@ const User = require('../models/User');
 const Session = require('../models/Session');
 const Review = require('../models/Review');
 const { uploadImage } = require('../utils/cloudinary');
-const { createCalendarEvent, getRandomIcebreaker, generateMeetLink } = require('../utils/googleCalendar');
+const { 
+  createCalendarEvent, 
+  getRandomIcebreaker, 
+  generateMeetLink, 
+  createOAuthClient,
+  refreshAccessToken 
+} = require('../utils/googleCalendar');
 const { sendSessionEmails } = require('../utils/emailService');
 const { createDonationCheckout } = require('../utils/stripe');
 
@@ -282,6 +288,14 @@ const bookSession = async (req, res) => {
       });
     }
 
+    // Check if speaker has Google Calendar connected
+    if (!speaker.googleCalendar?.connected) {
+      return res.status(400).json({
+        success: false,
+        message: 'Speaker has not connected their Google Calendar. Please contact the speaker to connect their calendar first.'
+      });
+    }
+
     // Check if user exists
     const learner = await User.findById(learnerId);
     if (!learner) {
@@ -299,8 +313,39 @@ const bookSession = async (req, res) => {
     const [hours, minutes] = time.split(':').map(Number);
     sessionDate.setHours(hours, minutes, 0, 0);
 
+    // Create OAuth client using speaker's credentials
+    let oauthClient = createOAuthClient(
+      speaker.googleCalendar.accessToken,
+      speaker.googleCalendar.refreshToken
+    );
+
+    // Check if access token is expired and refresh if needed
+    if (speaker.googleCalendar.expiresAt && new Date() >= new Date(speaker.googleCalendar.expiresAt)) {
+      try {
+        const refreshedTokens = await refreshAccessToken(oauthClient);
+        
+        // Update the speaker's access token in the database
+        await User.findByIdAndUpdate(speakerId, {
+          'googleCalendar.accessToken': refreshedTokens.accessToken,
+          'googleCalendar.expiresAt': refreshedTokens.expiryDate
+        });
+
+        oauthClient = createOAuthClient(
+          refreshedTokens.accessToken,
+          speaker.googleCalendar.refreshToken
+        );
+      } catch (refreshError) {
+        console.error('Error refreshing access token:', refreshError);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to refresh Google Calendar access. Please ask the speaker to reconnect their calendar.'
+        });
+      }
+    }
+
     // Create calendar event with Google Meet link
     const calendarResult = await createCalendarEvent({
+      oauthClient,
       speakerEmail: speaker.email,
       learnerEmail: learner.email,
       speakerName: `${speaker.firstname} ${speaker.lastname}`,

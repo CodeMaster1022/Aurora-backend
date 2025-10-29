@@ -10,6 +10,11 @@ const {
   rateLearner,
   getGiftSong
 } = require('../controllers/speakerController');
+const {
+  getCalendarAuthUrl,
+  getCalendarStatus,
+  disconnectCalendar
+} = require('../controllers/calendarController');
 
 // Multer configuration for avatar upload
 const upload = multer({
@@ -41,6 +46,11 @@ router.post('/avatar', upload.single('avatar'), uploadAvatar);
 // Session rating routes
 router.post('/sessions/:id/review', rateLearner);
 router.get('/gift-song', getGiftSong);
+
+// Google Calendar routes
+router.get('/calendar/auth-url', getCalendarAuthUrl);
+router.get('/calendar/status', getCalendarStatus);
+router.post('/calendar/disconnect', disconnectCalendar);
 
 module.exports = router;
 

@@ -78,7 +78,23 @@ const userSchema = new mongoose.Schema({
   // Track viewed YouTube songs to prevent repeats
   viewedSongs: [{
     type: String // YouTube video IDs
-  }]
+  }],
+  // Google Calendar OAuth credentials (for speakers)
+  googleCalendar: {
+    accessToken: {
+      type: String
+    },
+    refreshToken: {
+      type: String
+    },
+    expiresAt: {
+      type: Date
+    },
+    connected: {
+      type: Boolean,
+      default: false
+    }
+  }
 }, {
   timestamps: true
 });

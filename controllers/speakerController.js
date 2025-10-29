@@ -2,6 +2,12 @@ const User = require('../models/User');
 const Session = require('../models/Session');
 const Review = require('../models/Review');
 const { uploadImage } = require('../utils/cloudinary');
+const { 
+  getAuthUrl, 
+  getTokensFromCode, 
+  createOAuthClient, 
+  refreshAccessToken 
+} = require('../utils/googleCalendar');
 
 // @desc    Get speaker dashboard data
 // @route   GET /api/speaker/dashboard

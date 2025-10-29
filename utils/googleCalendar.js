@@ -2,19 +2,107 @@ const { google } = require('googleapis');
 const calendar = google.calendar('v3');
 const OAuth2 = google.auth.OAuth2;
 
-// Configure OAuth2 client
-const oauth2Client = new OAuth2(
+// Configure global options for googleapis
+// google.options({
+//   timeout: 60000,
+//   retry: true
+// });
+
+// Configure base OAuth2 client for token generation
+const baseOAuth2Client = new OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
   process.env.GOOGLE_REDIRECT_URI
 );
 
-// Set refresh token if available
-if (process.env.GOOGLE_REFRESH_TOKEN) {
-  oauth2Client.setCredentials({
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
+// Set custom options for HTTP requests
+baseOAuth2Client.on('tokens', (tokens) => {
+  if (tokens.refresh_token) {
+    console.log('Received refresh token');
+  }
+});
+
+// Get OAuth URL for initiating the flow
+const getAuthUrl = () => {
+  const scopes = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/calendar.events'
+  ];
+
+  return baseOAuth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: scopes,
+    prompt: 'consent' // Force consent to get refresh token
   });
-}
+};
+
+// Exchange code for tokens
+const getTokensFromCode = async (code) => {
+  try {
+    console.log('Attempting to exchange code for tokens...');
+    console.log('Redirect URI:', process.env.GOOGLE_REDIRECT_URI);
+    
+    // Exchange authorization code for tokens
+    const { tokens } = await baseOAuth2Client.getToken(code);
+    
+    console.log('Successfully received tokens from Google');
+    console.log('Access token received:', !!tokens.access_token);
+    console.log('Refresh token received:', !!tokens.refresh_token);
+    
+    return {
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null
+    };
+  } catch (error) {
+    console.error('Error getting tokens from code:', error);
+    console.error('Error message:', error.message);
+    console.error('Error code:', error.code);
+    
+    // Provide more helpful error message
+    if (error.code === 'ETIMEDOUT') {
+      throw new Error('Connection timeout to Google OAuth servers. Please check your network connection or firewall settings.');
+    }
+    
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    
+    throw error;
+  }
+};
+
+// Create OAuth2 client for a specific speaker
+const createOAuthClient = (accessToken, refreshToken) => {
+  const client = new OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+
+  client.setCredentials({
+    access_token: accessToken,
+    refresh_token: refreshToken
+  });
+
+  return client;
+};
+
+// Refresh access token if expired
+const refreshAccessToken = async (client) => {
+  try {
+    const { credentials } = await client.refreshAccessToken();
+    client.setCredentials(credentials);
+    return {
+      accessToken: credentials.access_token,
+      expiryDate: credentials.expiry_date ? new Date(credentials.expiry_date) : null
+    };
+  } catch (error) {
+    console.error('Error refreshing access token:', error);
+    throw error;
+  }
+};
 
 /**
  * Generate a random icebreaker question
@@ -45,6 +133,7 @@ const getRandomIcebreaker = () => {
  * Create a Google Calendar event with Meet link
  */
 const createCalendarEvent = async ({ 
+  oauthClient, // OAuth client for the speaker
   speakerEmail, 
   learnerEmail, 
   speakerName, 
@@ -98,9 +187,9 @@ Join the meeting using the link below.
       }
     };
 
-    // Create the event
+    // Create the event using speaker's OAuth client
     const event = await calendar.events.insert({
-      auth: oauth2Client,
+      auth: oauthClient,
       calendarId: 'primary',
       resource: eventDetails,
       conferenceDataVersion: 1
@@ -146,6 +235,10 @@ const generateMeetLink = () => {
 };
 
 module.exports = {
+  getAuthUrl,
+  getTokensFromCode,
+  createOAuthClient,
+  refreshAccessToken,
   createCalendarEvent,
   generateMeetLink,
   getRandomIcebreaker
