@@ -26,7 +26,11 @@ const formatUserResponse = (user) => {
     meetingPreference: user.meetingPreference,
     avatar: user.avatar,
     bio: user.bio,
-    availability: user.availability
+    availability: user.availability,
+    termsAccepted: user.termsAccepted,
+    termsAcceptedAt: user.termsAcceptedAt,
+    privacyAccepted: user.privacyAccepted,
+    privacyAcceptedAt: user.privacyAcceptedAt
   };
 };
 
@@ -35,13 +39,21 @@ const formatUserResponse = (user) => {
 // @access  Public
 const registerUser = async (req, res) => {
   try {
-    const { firstname, lastname, email, password, role } = req.body;
+    const { firstname, lastname, email, password, role, termsAccepted, privacyAccepted } = req.body;
 
     // Validate required fields
     if (!firstname || !lastname) {
       return res.status(400).json({
         success: false,
         message: 'First name and last name are required'
+      });
+    }
+
+    // Validate terms and privacy acceptance
+    if (!termsAccepted || !privacyAccepted) {
+      return res.status(400).json({
+        success: false,
+        message: 'You must accept the Terms and Conditions and Privacy Policy to continue'
       });
     }
 
@@ -60,7 +72,11 @@ const registerUser = async (req, res) => {
       lastname,
       email,
       password,
-      role: role || 'learner'
+      role: role || 'learner',
+      termsAccepted: true,
+      termsAcceptedAt: new Date(),
+      privacyAccepted: true,
+      privacyAcceptedAt: new Date()
     };
 
     const user = await User.create(userData);
@@ -90,7 +106,15 @@ const registerUser = async (req, res) => {
 // @access  Public
 const registerSpeaker = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, interests, meetingPreference } = req.body;
+    const { firstName, lastName, email, password, interests, meetingPreference, termsAccepted, privacyAccepted } = req.body;
+
+    // Validate terms and privacy acceptance
+    if (!termsAccepted || !privacyAccepted) {
+      return res.status(400).json({
+        success: false,
+        message: 'You must accept the Terms and Conditions and Privacy Policy to continue'
+      });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -136,7 +160,11 @@ const registerSpeaker = async (req, res) => {
       interests: interestsArray,
       meetingPreference,
       avatar: avatarPath,
-      status: 'review' // Speakers need review
+      status: 'review', // Speakers need review
+      termsAccepted: true,
+      termsAcceptedAt: new Date(),
+      privacyAccepted: true,
+      privacyAcceptedAt: new Date()
     });
 
     // Generate token
@@ -270,10 +298,41 @@ const logoutUser = async (req, res) => {
   }
 };
 
+// @desc    Accept terms and privacy policy
+// @route   POST /api/auth/accept-terms
+// @access  Private
+const acceptTerms = async (req, res) => {
+  try {
+    const user = req.user;
+    
+    user.termsAccepted = true;
+    user.termsAcceptedAt = new Date();
+    user.privacyAccepted = true;
+    user.privacyAcceptedAt = new Date();
+    
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Terms and Privacy Policy accepted successfully',
+      data: {
+        user: formatUserResponse(user)
+      }
+    });
+  } catch (error) {
+    console.error('Accept terms error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error during terms acceptance'
+    });
+  }
+};
+
 module.exports = {
   registerUser,
   registerSpeaker,
   loginUser,
   getCurrentUser,
-  logoutUser
+  logoutUser,
+  acceptTerms
 };

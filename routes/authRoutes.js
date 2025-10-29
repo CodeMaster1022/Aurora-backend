@@ -6,7 +6,8 @@ const {
   registerSpeaker,
   loginUser,
   getCurrentUser,
-  logoutUser
+  logoutUser,
+  acceptTerms
 } = require('../controllers/authController');
 const { authenticateToken } = require('../middleware/auth');
 
@@ -38,5 +39,6 @@ router.post('/login', loginUser);
 // Protected routes
 router.get('/me', authenticateToken, getCurrentUser);
 router.post('/logout', authenticateToken, logoutUser);
+router.post('/accept-terms', authenticateToken, acceptTerms);
 
 module.exports = router;

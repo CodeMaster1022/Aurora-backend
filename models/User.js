@@ -94,6 +94,21 @@ const userSchema = new mongoose.Schema({
       type: Boolean,
       default: false
     }
+  },
+  // Terms and Privacy acceptance
+  termsAccepted: {
+    type: Boolean,
+    default: false
+  },
+  termsAcceptedAt: {
+    type: Date
+  },
+  privacyAccepted: {
+    type: Boolean,
+    default: false
+  },
+  privacyAcceptedAt: {
+    type: Date
   }
 }, {
   timestamps: true
