@@ -299,6 +299,14 @@ const bookSession = async (req, res) => {
     const [hours, minutes] = time.split(':').map(Number);
     sessionDate.setHours(hours, minutes, 0, 0);
 
+    // Check if speaker has Google Calendar connected
+    if (!speaker.googleCalendarTokens?.refreshToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'This speaker has not connected their Google Calendar. Please ask them to connect it first.'
+      });
+    }
+
     // Create calendar event with Google Meet link
     const calendarResult = await createCalendarEvent({
       speakerEmail: speaker.email,
@@ -309,7 +317,8 @@ const bookSession = async (req, res) => {
       topics: topics || [],
       icebreaker,
       startDateTime: sessionDate,
-      duration: 30 // Always 30 minutes
+      duration: 30, // Always 30 minutes
+      speakerTokens: speaker.googleCalendarTokens // Pass speaker's tokens
     });
 
     // Use the Meet link from calendar event (or fallback)
