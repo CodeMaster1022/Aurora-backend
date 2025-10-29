@@ -8,10 +8,7 @@ const {
   updateAvailability,
   uploadAvatar,
   rateLearner,
-  getGiftSong,
-  getGoogleCalendarAuthUrl,
-  handleGoogleCalendarCallback,
-  disconnectGoogleCalendar
+  getGiftSong
 } = require('../controllers/speakerController');
 
 // Multer configuration for avatar upload
@@ -44,11 +41,6 @@ router.post('/avatar', upload.single('avatar'), uploadAvatar);
 // Session rating routes
 router.post('/sessions/:id/review', rateLearner);
 router.get('/gift-song', getGiftSong);
-
-// Google Calendar OAuth routes
-router.get('/google-calendar/auth-url', getGoogleCalendarAuthUrl);
-router.post('/google-calendar/callback', handleGoogleCalendarCallback);
-router.delete('/google-calendar/disconnect', disconnectGoogleCalendar);
 
 module.exports = router;
 

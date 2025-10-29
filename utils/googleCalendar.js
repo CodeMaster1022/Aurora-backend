@@ -6,30 +6,15 @@ const OAuth2 = google.auth.OAuth2;
 const oauth2Client = new OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/auth/google/callback'
+  process.env.GOOGLE_REDIRECT_URI
 );
 
-/**
- * Create an OAuth2 client for a specific user
- */
-const createUserOAuth2Client = (tokens) => {
-  const client = new OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  );
-  
-  if (tokens?.refreshToken) {
-    client.setCredentials({
-      refresh_token: tokens.refreshToken,
-      access_token: tokens.accessToken,
-      token_type: tokens.tokenType,
-      expiry_date: tokens.expiryDate
-    });
-  }
-  
-  return client;
-};
+// Set refresh token if available
+if (process.env.GOOGLE_REFRESH_TOKEN) {
+  oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
+  });
+}
 
 /**
  * Generate a random icebreaker question
@@ -68,18 +53,9 @@ const createCalendarEvent = async ({
   topics,
   icebreaker,
   startDateTime,
-  duration = 30, // Always 30 minutes
-  speakerTokens // Speaker's Google OAuth2 tokens
+  duration = 30 // Always 30 minutes
 }) => {
   try {
-    // Check if speaker has Google Calendar connected
-    if (!speakerTokens?.refreshToken) {
-      throw new Error('Speaker has not connected their Google Calendar');
-    }
-
-    // Create OAuth2 client for this speaker
-    const speakerOAuth2Client = createUserOAuth2Client(speakerTokens);
-    
     const endDateTime = new Date(startDateTime);
     endDateTime.setMinutes(endDateTime.getMinutes() + duration);
 
@@ -122,9 +98,9 @@ Join the meeting using the link below.
       }
     };
 
-    // Create the event using speaker's OAuth2 credentials
+    // Create the event
     const event = await calendar.events.insert({
-      auth: speakerOAuth2Client,
+      auth: oauth2Client,
       calendarId: 'primary',
       resource: eventDetails,
       conferenceDataVersion: 1
@@ -169,56 +145,8 @@ const generateMeetLink = () => {
   return `https://meet.google.com/${meetCode}`;
 };
 
-/**
- * Get Google OAuth2 authorization URL
- */
-const getAuthUrl = () => {
-  const SCOPES = [
-    'https://www.googleapis.com/auth/calendar.events',
-    'https://www.googleapis.com/auth/calendar'
-  ];
-
-  return oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES,
-    prompt: 'consent' // Force consent to get refresh token
-  });
-};
-
-/**
- * Exchange authorization code for tokens
- */
-const getTokensFromCode = async (code) => {
-  try {
-    const { tokens } = await oauth2Client.getToken(code);
-    
-    // Refresh the OAuth2 client with the new tokens
-    oauth2Client.setCredentials(tokens);
-    
-    return {
-      success: true,
-      tokens: {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        tokenType: tokens.token_type,
-        expiryDate: tokens.expiry_date,
-        scope: tokens.scope
-      }
-    };
-  } catch (error) {
-    console.error('Error getting tokens from code:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-
 module.exports = {
   createCalendarEvent,
   generateMeetLink,
-  getRandomIcebreaker,
-  getAuthUrl,
-  getTokensFromCode,
-  createUserOAuth2Client
+  getRandomIcebreaker
 };

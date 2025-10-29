@@ -2,7 +2,6 @@ const User = require('../models/User');
 const Session = require('../models/Session');
 const Review = require('../models/Review');
 const { uploadImage } = require('../utils/cloudinary');
-const { getAuthUrl, getTokensFromCode } = require('../utils/googleCalendar');
 
 // @desc    Get speaker dashboard data
 // @route   GET /api/speaker/dashboard
@@ -45,10 +44,6 @@ const getDashboard = async (req, res) => {
       ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
       : 0;
 
-    // Get user to check Google Calendar connection status
-    const user = await User.findById(userId).select('googleCalendarTokens');
-    const hasGoogleCalendarConnected = user?.googleCalendarTokens?.refreshToken ? true : false;
-
     res.json({
       success: true,
       data: {
@@ -59,8 +54,7 @@ const getDashboard = async (req, res) => {
           totalSessions,
           completedSessions,
           rating: avgRating,
-          reviewsCount: reviews.length,
-          hasGoogleCalendarConnected
+          reviewsCount: reviews.length
         }
       }
     });
@@ -462,104 +456,6 @@ const getGiftSong = async (req, res) => {
   }
 };
 
-// @desc    Get Google Calendar OAuth authorization URL
-// @route   GET /api/speaker/google-calendar/auth-url
-// @access  Private (Speaker)
-const getGoogleCalendarAuthUrl = async (req, res) => {
-  try {
-    const authUrl = getAuthUrl();
-    
-    res.json({
-      success: true,
-      data: { authUrl }
-    });
-  } catch (error) {
-    console.error('Get Google Calendar auth URL error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
-  }
-};
-
-// @desc    Handle Google Calendar OAuth callback
-// @route   POST /api/speaker/google-calendar/callback
-// @access  Private (Speaker)
-const handleGoogleCalendarCallback = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const { code } = req.body;
-
-    if (!code) {
-      return res.status(400).json({
-        success: false,
-        message: 'Authorization code is required'
-      });
-    }
-
-    // Exchange code for tokens
-    const result = await getTokensFromCode(code);
-    
-    if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        message: result.error || 'Failed to obtain tokens'
-      });
-    }
-
-    // Save tokens to user
-    await User.findByIdAndUpdate(
-      userId,
-      {
-        googleCalendarTokens: result.tokens
-      },
-      { new: true }
-    ).select('-password');
-
-    res.json({
-      success: true,
-      message: 'Google Calendar connected successfully',
-      data: {
-        connected: true
-      }
-    });
-  } catch (error) {
-    console.error('Google Calendar callback error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
-  }
-};
-
-// @desc    Disconnect Google Calendar
-// @route   DELETE /api/speaker/google-calendar/disconnect
-// @access  Private (Speaker)
-const disconnectGoogleCalendar = async (req, res) => {
-  try {
-    const userId = req.user._id;
-
-    await User.findByIdAndUpdate(
-      userId,
-      {
-        googleCalendarTokens: null
-      },
-      { new: true }
-    ).select('-password');
-
-    res.json({
-      success: true,
-      message: 'Google Calendar disconnected successfully'
-    });
-  } catch (error) {
-    console.error('Disconnect Google Calendar error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
-  }
-};
-
 module.exports = {
   getDashboard,
   updateProfile,
@@ -568,8 +464,5 @@ module.exports = {
   getSpeakers,
   getSpeakerProfile,
   rateLearner,
-  getGiftSong,
-  getGoogleCalendarAuthUrl,
-  handleGoogleCalendarCallback,
-  disconnectGoogleCalendar
+  getGiftSong
 };
