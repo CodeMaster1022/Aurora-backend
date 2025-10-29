@@ -2,11 +2,21 @@ const { google } = require('googleapis');
 const calendar = google.calendar('v3');
 const OAuth2 = google.auth.OAuth2;
 
-// Configure global options for googleapis
-// google.options({
-//   timeout: 60000,
-//   retry: true
-// });
+// Configure global options for googleapis with extended timeout and retry
+google.options({
+  timeout: 60000, // 60 seconds timeout
+  retry: true,
+  retryConfig: {
+    retry: 3, // Retry 3 times
+    retryDelay: 1000, // Initial retry delay of 1 second
+    httpMethodsToRetry: ['GET', 'POST', 'PUT', 'HEAD', 'OPTIONS'],
+    statusCodesToRetry: [
+      [100, 199],
+      [429, 429],
+      [500, 599]
+    ]
+  }
+});
 
 // Configure base OAuth2 client for token generation
 const baseOAuth2Client = new OAuth2(
@@ -14,6 +24,32 @@ const baseOAuth2Client = new OAuth2(
   process.env.GOOGLE_CLIENT_SECRET,
   process.env.GOOGLE_REDIRECT_URI
 );
+
+// Configure OAuth2 client's internal HTTP client with extended timeout
+// The OAuth2 client uses gaxios internally, so we configure it directly
+if (baseOAuth2Client._client && baseOAuth2Client._client.request) {
+  const originalRequest = baseOAuth2Client._client.request.bind(baseOAuth2Client._client);
+  baseOAuth2Client._client.request = function(opts, callback) {
+    // Set extended timeout for OAuth token exchange (60 seconds)
+    opts.timeout = opts.timeout || 60000;
+    
+    // If callback is provided, use callback pattern
+    if (callback) {
+      return originalRequest(opts, callback);
+    }
+    
+    // Otherwise return promise and handle timeouts
+    return originalRequest(opts).catch(error => {
+      // Retry on timeout errors
+      if (error.code === 'ETIMEDOUT' && opts._retryCount < 2) {
+        opts._retryCount = (opts._retryCount || 0) + 1;
+        console.log(`Retrying OAuth request (attempt ${opts._retryCount + 1})...`);
+        return originalRequest(opts);
+      }
+      throw error;
+    });
+  };
+}
 
 // Set custom options for HTTP requests
 baseOAuth2Client.on('tokens', (tokens) => {
@@ -36,14 +72,41 @@ const getAuthUrl = () => {
   });
 };
 
+// Helper function to retry a promise with exponential backoff
+const retryWithBackoff = async (fn, maxRetries = 3, delay = 1000) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      // If it's the last attempt or not a timeout/network error, throw
+      if (attempt === maxRetries || (error.code !== 'ETIMEDOUT' && error.code !== 'ECONNRESET' && error.code !== 'ENOTFOUND')) {
+        throw error;
+      }
+      
+      // Exponential backoff: wait longer between each retry
+      const waitTime = delay * Math.pow(2, attempt - 1);
+      console.log(`Attempt ${attempt} failed. Retrying in ${waitTime}ms...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+  }
+};
+
 // Exchange code for tokens
 const getTokensFromCode = async (code) => {
   try {
     console.log('Attempting to exchange code for tokens...');
     console.log('Redirect URI:', process.env.GOOGLE_REDIRECT_URI);
     
-    // Exchange authorization code for tokens
-    const { tokens } = await baseOAuth2Client.getToken(code);
+    // Exchange authorization code for tokens with retry logic
+    const { tokens } = await retryWithBackoff(async () => {
+      try {
+        return await baseOAuth2Client.getToken(code);
+      } catch (error) {
+        // Log the error but let retry logic handle it
+        console.log(`Token exchange attempt failed: ${error.code || error.message}`);
+        throw error;
+      }
+    }, 3, 1000);
     
     console.log('Successfully received tokens from Google');
     console.log('Access token received:', !!tokens.access_token);
@@ -60,8 +123,8 @@ const getTokensFromCode = async (code) => {
     console.error('Error code:', error.code);
     
     // Provide more helpful error message
-    if (error.code === 'ETIMEDOUT') {
-      throw new Error('Connection timeout to Google OAuth servers. Please check your network connection or firewall settings.');
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNRESET' || error.code === 'ENOTFOUND') {
+      throw new Error('Connection timeout to Google OAuth servers after multiple retry attempts. Please check your network connection, firewall settings, or try again later.');
     }
     
     if (error.response) {
