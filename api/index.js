@@ -1,3 +1,8 @@
 // Vercel serverless function entry point
-module.exports = require('../server');
+const app = require('../server');
+
+// Export handler function
+module.exports = async (req, res) => {
+  return app(req, res);
+};
 
