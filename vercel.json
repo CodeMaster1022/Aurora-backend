@@ -1,15 +1,7 @@
 {
   "version": 2,
-  "name": "backend",
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "nodejs18.x",
-      "memory": 1024,
-      "maxDuration": 10
-    }
-  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/server.js" }
+    { "source": "/(.*)", "destination": "/api/index.js" }
   ],
   "headers": [
     {
