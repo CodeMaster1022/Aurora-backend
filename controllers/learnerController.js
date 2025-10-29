@@ -35,6 +35,12 @@ const getDashboard = async (req, res) => {
       .populate('speaker', 'firstname lastname email avatar')
       .sort({ date: -1, time: -1 });
 
+    // Get reviews given by this learner
+    const reviews = await Review.find({ from: userId })
+      .populate('to', 'firstname lastname avatar')
+      .populate('session', 'title date time')
+      .sort({ createdAt: -1 });
+
     // Count total and completed sessions
     const totalSessions = await Session.countDocuments({ learner: userId });
     const completedSessions = await Session.countDocuments({
@@ -51,6 +57,7 @@ const getDashboard = async (req, res) => {
       data: {
         upcomingSessions,
         pastSessions,
+        reviews,
         profile: {
           totalSessions,
           completedSessions,
@@ -117,12 +124,7 @@ const rateSession = async (req, res) => {
       });
     }
 
-    if (!comment || comment.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Review comment is required'
-      });
-    }
+    // Comment is optional, so we don't validate it here
 
     // Find the session
     const session = await Session.findOne({
@@ -157,7 +159,7 @@ const rateSession = async (req, res) => {
       from: userId,
       to: session.speaker,
       rating,
-      comment: comment.trim()
+      comment: comment ? comment.trim() : ''
     });
 
     // Populate the review
@@ -630,6 +632,15 @@ const createDonation = async (req, res) => {
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const successUrl = `${baseUrl}/learners/dashboard?donation=success`;
     const cancelUrl = `${baseUrl}/learners/dashboard?donation=cancelled`;
+
+    // Check if Stripe is configured before attempting to create checkout
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(503).json({
+        success: false,
+        message: 'Donation feature is currently unavailable. Stripe is not configured on the server.',
+        error: 'STRIPE_NOT_CONFIGURED'
+      });
+    }
 
     // Create Stripe checkout session
     const checkoutResult = await createDonationCheckout({

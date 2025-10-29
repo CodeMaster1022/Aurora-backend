@@ -35,7 +35,15 @@ const formatUserResponse = (user) => {
 // @access  Public
 const registerUser = async (req, res) => {
   try {
-    const { firstname, lastname, fullName, email, password, role } = req.body;
+    const { firstname, lastname, email, password, role } = req.body;
+
+    // Validate required fields
+    if (!firstname || !lastname) {
+      return res.status(400).json({
+        success: false,
+        message: 'First name and last name are required'
+      });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -48,24 +56,12 @@ const registerUser = async (req, res) => {
 
     // Create user
     const userData = {
+      firstname,
+      lastname,
       email,
       password,
       role: role || 'learner'
     };
-
-    // Handle fullName or separate firstname/lastname
-    if (fullName) {
-      const nameParts = fullName.trim().split(' ');
-      if (nameParts.length >= 2) {
-        userData.firstname = nameParts[0];
-        userData.lastname = nameParts.slice(1).join(' ');
-      } else {
-        userData.firstname = fullName;
-      }
-    } else {
-      if (firstname) userData.firstname = firstname;
-      if (lastname) userData.lastname = lastname;
-    }
 
     const user = await User.create(userData);
 
