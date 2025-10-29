@@ -410,7 +410,6 @@ const getGiftSong = async (req, res) => {
       { id: 'YQHsXMglC9A', title: 'Hello' }, // Adele
       { id: 'fo0X6KoRO1GY', title: 'Shape of You' }, // Ed Sheeran
       { id: 'fJ9rUzIMcZQ', title: 'Bohemian Rhapsody' }, // Queen
-      { id: 'kJQP7kiw5Fk', title: 'Despacito' }, // Luis Fonsi
       { id: 'RgKAFK5djSk', title: 'See You Again' }, // Wiz Khalifa
       { id: 'uE-1RPDqJAY', title: 'Baby' }, // Justin Bieber
       { id: 'IOuAbP6nuOM', title: 'Roar' }, // Katy Perry
