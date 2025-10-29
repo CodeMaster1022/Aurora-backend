@@ -6,6 +6,7 @@ const {
   getDashboard,
   updateProfile,
   updateAvailability,
+  updateInterests,
   uploadAvatar,
   rateLearner,
   getGiftSong,
@@ -42,6 +43,7 @@ router.get('/dashboard', getDashboard);
 // Profile routes
 router.put('/profile', updateProfile);
 router.put('/availability', updateAvailability);
+router.put('/interests', updateInterests);
 router.post('/avatar', upload.single('avatar'), uploadAvatar);
 
 // Session rating routes

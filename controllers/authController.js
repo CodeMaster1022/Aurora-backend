@@ -26,6 +26,8 @@ const formatUserResponse = (user) => {
     meetingPreference: user.meetingPreference,
     avatar: user.avatar,
     bio: user.bio,
+    age: user.age,
+    cost: user.cost,
     availability: user.availability,
     termsAccepted: user.termsAccepted,
     termsAcceptedAt: user.termsAcceptedAt,
@@ -106,7 +108,7 @@ const registerUser = async (req, res) => {
 // @access  Public
 const registerSpeaker = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, interests, meetingPreference, termsAccepted, privacyAccepted } = req.body;
+    const { firstName, lastName, email, password, interests, meetingPreference, age, cost, termsAccepted, privacyAccepted } = req.body;
 
     // Validate terms and privacy acceptance
     if (!termsAccepted || !privacyAccepted) {
@@ -160,6 +162,8 @@ const registerSpeaker = async (req, res) => {
       interests: interestsArray,
       meetingPreference,
       avatar: avatarPath,
+      age: age || undefined,
+      cost: cost || undefined,
       status: 'review', // Speakers need review
       termsAccepted: true,
       termsAcceptedAt: new Date(),

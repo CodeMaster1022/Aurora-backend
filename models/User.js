@@ -59,6 +59,15 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  age: {
+    type: Number,
+    min: 18,
+    max: 120
+  },
+  cost: {
+    type: Number,
+    min: 0
+  },
   availability: [{
     day: {
       type: String,

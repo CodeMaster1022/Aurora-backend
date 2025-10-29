@@ -50,10 +50,12 @@ const getDashboard = async (req, res) => {
       ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
       : 0;
 
-    // Get user's bio and availability
-    const user = await User.findById(userId).select('bio availability');
+    // Get user's bio, availability, age, and cost
+    const user = await User.findById(userId).select('bio availability age cost');
     const bio = user?.bio || '';
     const availability = user?.availability || [];
+    const age = user?.age || undefined;
+    const cost = user?.cost || undefined;
 
     res.json({
       success: true,
@@ -64,6 +66,8 @@ const getDashboard = async (req, res) => {
         profile: {
           bio,
           availability,
+          age,
+          cost,
           totalSessions,
           completedSessions,
           rating: avgRating,
@@ -86,10 +90,12 @@ const getDashboard = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { bio, availability } = req.body;
+    const { bio, availability, age, cost } = req.body;
 
     const updateData = {};
     if (bio !== undefined) updateData.bio = bio;
+    if (age !== undefined) updateData.age = age;
+    if (cost !== undefined) updateData.cost = cost;
 
     const user = await User.findByIdAndUpdate(
       userId,
@@ -145,6 +151,49 @@ const updateAvailability = async (req, res) => {
     });
   } catch (error) {
     console.error('Update availability error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
+// @desc    Update speaker interests
+// @route   PUT /api/speaker/interests
+// @access  Private (Speaker)
+const updateInterests = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { interests } = req.body;
+
+    if (!interests || !Array.isArray(interests)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Interests must be an array'
+      });
+    }
+
+    // Validate max 4 interests
+    if (interests.length > 4) {
+      return res.status(400).json({
+        success: false,
+        message: 'Maximum 4 interests allowed'
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { interests },
+      { new: true }
+    ).select('-password');
+
+    res.json({
+      success: true,
+      message: 'Interests updated successfully',
+      data: { user }
+    });
+  } catch (error) {
+    console.error('Update interests error:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Server error'
@@ -544,6 +593,7 @@ module.exports = {
   getDashboard,
   updateProfile,
   updateAvailability,
+  updateInterests,
   uploadAvatar,
   getSpeakers,
   getSpeakerProfile,
