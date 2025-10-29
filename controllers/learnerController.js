@@ -9,7 +9,6 @@ const {
   createOAuthClient,
   refreshAccessToken 
 } = require('../utils/googleCalendar');
-const { sendSessionEmails } = require('../utils/emailService');
 const { createDonationCheckout } = require('../utils/stripe');
 
 // @desc    Get learner dashboard data
@@ -258,16 +257,26 @@ const bookSession = async (req, res) => {
     const learnerId = req.user._id;
     const { speakerId, title, date, time, topics } = req.body;
 
+    // Log the incoming request for debugging
+    console.log('Book session request:', { speakerId, title, date, time, topics });
+
     // Validate required fields
     if (!speakerId || !title || !date || !time) {
+      console.log('Validation failed - missing fields:', { 
+        speakerId: !!speakerId, 
+        title: !!title, 
+        date: !!date, 
+        time: !!time 
+      });
       return res.status(400).json({
         success: false,
         message: 'Speaker, title, date, and time are required'
       });
     }
 
-    // Validate topics (max 2)
-    if (topics && topics.length > 2) {
+    // Validate topics (max 2) - filter out empty strings
+    const validTopics = topics ? topics.filter(t => t && typeof t === 'string' && t.trim().length > 0) : [];
+    if (validTopics.length > 2) {
       return res.status(400).json({
         success: false,
         message: 'Maximum 2 topics allowed'
@@ -308,10 +317,136 @@ const bookSession = async (req, res) => {
     // Generate icebreaker question
     const icebreaker = getRandomIcebreaker();
 
-    // Parse date and time
-    const sessionDate = new Date(date);
-    const [hours, minutes] = time.split(':').map(Number);
-    sessionDate.setHours(hours, minutes, 0, 0);
+    // Parse date and time - handle timezone correctly
+    // Date from HTML input is in YYYY-MM-DD format
+    // Time from HTML input is in HH:MM format
+    // Combine them properly to avoid timezone issues
+    let sessionDate;
+    
+    // Validate time format first
+    const timeMatch = time.match(/^(\d{1,2}):(\d{2})$/);
+    if (!timeMatch) {
+      console.log('Invalid time format:', time);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid time format. Please use HH:MM format'
+      });
+    }
+
+    const [hours, minutes] = timeMatch.slice(1).map(Number);
+    
+    // Validate hours and minutes
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+      console.log('Invalid time values:', { hours, minutes });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid time. Hours must be 0-23 and minutes 0-59'
+      });
+    }
+
+    // Combine date and time properly: create date string in ISO format (YYYY-MM-DDTHH:MM:SS)
+    // This avoids timezone parsing issues
+    const dateTimeString = `${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+    sessionDate = new Date(dateTimeString);
+    
+    if (isNaN(sessionDate.getTime())) {
+      console.log('Invalid date/time combination:', { date, time, dateTimeString });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid date format or date/time combination'
+      });
+    }
+
+    console.log('Parsed session date:', { 
+      originalDate: date, 
+      originalTime: time, 
+      combined: dateTimeString,
+      parsed: sessionDate.toISOString(),
+      local: sessionDate.toString()
+    });
+
+    // Validate that session is in the future
+    const now = new Date();
+    if (sessionDate <= now) {
+      console.log('Session is in the past:', { 
+        sessionDate: sessionDate.toISOString(), 
+        now: now.toISOString(),
+        diff: sessionDate - now
+      });
+      return res.status(400).json({
+        success: false,
+        message: 'Session must be scheduled for a future date and time'
+      });
+    }
+
+    // Validate availability - check if speaker is available on the requested day and time
+    const dayOfWeek = sessionDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const requestedDay = dayNames[dayOfWeek];
+    
+    // Find speaker's availability for the requested day
+    const speakerAvailability = speaker.availability || [];
+    const dayAvailability = speakerAvailability.find(avail => avail.day === requestedDay);
+    
+    if (!dayAvailability || !dayAvailability.isAvailable) {
+      return res.status(400).json({
+        success: false,
+        message: `Speaker is not available on ${requestedDay.charAt(0).toUpperCase() + requestedDay.slice(1)}. Please select a day when the speaker is available.`
+      });
+    }
+
+    // Check if the requested time is within speaker's available hours
+    const requestedTime = time; // Format: HH:MM
+    const startTime = dayAvailability.startTime || '00:00';
+    const endTime = dayAvailability.endTime || '23:59';
+    
+    // Compare times (HH:MM format)
+    const timeToMinutes = (timeStr) => {
+      const [h, m] = timeStr.split(':').map(Number);
+      return h * 60 + m;
+    };
+    
+    const requestedMinutes = timeToMinutes(requestedTime);
+    const startMinutes = timeToMinutes(startTime);
+    const endMinutes = timeToMinutes(endTime);
+    
+    // Session duration is 30 minutes, so check if session end time is within availability
+    const sessionEndMinutes = requestedMinutes + 30;
+    
+    if (requestedMinutes < startMinutes || sessionEndMinutes > endMinutes) {
+      return res.status(400).json({
+        success: false,
+        message: `Speaker is only available between ${startTime} and ${endTime} on ${requestedDay.charAt(0).toUpperCase() + requestedDay.slice(1)}. Please select a time within this range.`
+      });
+    }
+
+    // Check for duplicate/overlapping bookings
+    // Sessions are 30 minutes, so check for any overlap
+    const existingSessions = await Session.find({
+      speaker: speakerId,
+      date: {
+        $gte: new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 0, 0, 0),
+        $lt: new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 23, 59, 59)
+      },
+      status: { $in: ['scheduled'] } // Only check scheduled sessions
+    });
+
+    // Check for time overlaps
+    const sessionDuration = 30; // minutes
+    for (const existingSession of existingSessions) {
+      const existingTime = existingSession.time; // Format: HH:MM
+      const existingMinutes = timeToMinutes(existingTime);
+      const existingEndMinutes = existingMinutes + sessionDuration;
+      
+      // Check if there's any overlap
+      // Overlap occurs if: requested start < existing end AND requested end > existing start
+      if (requestedMinutes < existingEndMinutes && sessionEndMinutes > existingMinutes) {
+        return res.status(400).json({
+          success: false,
+          message: `This time slot is already booked. The speaker has a session at ${existingTime}. Please choose a different time.`
+        });
+      }
+    }
 
     // Create OAuth client using speaker's credentials
     let oauthClient = createOAuthClient(
@@ -351,7 +486,7 @@ const bookSession = async (req, res) => {
       speakerName: `${speaker.firstname} ${speaker.lastname}`,
       learnerName: `${learner.firstname} ${learner.lastname}`,
       sessionTitle: title,
-      topics: topics || [],
+      topics: validTopics,
       icebreaker,
       startDateTime: sessionDate,
       duration: 30 // Always 30 minutes
@@ -368,7 +503,7 @@ const bookSession = async (req, res) => {
       date: sessionDate,
       time,
       duration: 30, // Always 30 minutes
-      topics: topics || [],
+      topics: validTopics,
       icebreaker,
       meetingLink: meetLink,
       status: 'scheduled'
@@ -376,28 +511,6 @@ const bookSession = async (req, res) => {
 
     // Populate speaker data for response
     await session.populate('speaker', 'firstname lastname email');
-
-    // Send confirmation emails to both users
-    const emailResults = await sendSessionEmails({
-      speakerEmail: speaker.email,
-      speakerName: `${speaker.firstname} ${speaker.lastname}`,
-      learnerEmail: learner.email,
-      learnerName: `${learner.firstname} ${learner.lastname}`,
-      sessionTitle: title,
-      topics: topics || [],
-      icebreaker,
-      date: sessionDate,
-      time,
-      duration: 30,
-      meetLink
-    });
-
-    // Log email results
-    emailResults.forEach(result => {
-      if (!result.success) {
-        console.error(`Failed to send email to ${result.type}:`, result.error);
-      }
-    });
 
     res.status(201).json({
       success: true,
@@ -407,15 +520,88 @@ const bookSession = async (req, res) => {
         calendar: {
           created: calendarResult.success,
           meetLink
-        },
-        emails: {
-          sent: emailResults.filter(r => r.success).length,
-          failed: emailResults.filter(r => !r.success).length
         }
       }
     });
   } catch (error) {
     console.error('Book session error:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Return 400 for validation errors, 500 for server errors
+    const statusCode = error.statusCode || (error.message && error.message.includes('required') ? 400 : 500);
+    res.status(statusCode).json({
+      success: false,
+      message: error.message || 'Server error',
+      ...(process.env.NODE_ENV === 'development' && { error: error.toString() })
+    });
+  }
+};
+
+// @desc    Cancel a scheduled session
+// @route   PUT /api/learner/sessions/:id/cancel
+// @access  Private (Learner)
+const cancelSession = async (req, res) => {
+  try {
+    const learnerId = req.user._id;
+    const sessionId = req.params.id;
+    const { reason } = req.body;
+
+    // Find the session
+    const session = await Session.findOne({
+      _id: sessionId,
+      learner: learnerId,
+      status: 'scheduled'
+    }).populate('speaker', 'firstname lastname email');
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found or cannot be cancelled'
+      });
+    }
+
+    // Check if session is in the future (can't cancel past sessions)
+    const sessionDate = new Date(session.date);
+    const sessionTime = session.time.split(':');
+    sessionDate.setHours(parseInt(sessionTime[0]), parseInt(sessionTime[1]), 0, 0);
+    
+    const now = new Date();
+    if (sessionDate <= now) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel a session that has already started or passed'
+      });
+    }
+
+    // Optional: Check cancellation time limit (e.g., must cancel at least 24 hours before)
+    const hoursUntilSession = (sessionDate - now) / (1000 * 60 * 60);
+    const CANCELLATION_MIN_HOURS = 24; // Minimum hours before session to cancel
+    
+    if (hoursUntilSession < CANCELLATION_MIN_HOURS) {
+      return res.status(400).json({
+        success: false,
+        message: `Sessions must be cancelled at least ${CANCELLATION_MIN_HOURS} hours before the scheduled time. This session is less than ${Math.round(hoursUntilSession)} hours away.`,
+        hoursUntilSession: Math.round(hoursUntilSession * 10) / 10
+      });
+    }
+
+    // Update session status
+    session.status = 'cancelled';
+    session.cancellationReason = reason || '';
+    session.cancelledAt = new Date();
+    session.cancelledBy = learnerId;
+    await session.save();
+
+    // Note: Email notifications removed per previous request
+    // If you want to notify speaker, you can add that logic here
+
+    res.json({
+      success: true,
+      message: 'Session cancelled successfully',
+      data: { session }
+    });
+  } catch (error) {
+    console.error('Cancel session error:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Server error'
@@ -483,6 +669,7 @@ module.exports = {
   updateProfile,
   uploadAvatar,
   bookSession,
-  createDonation
+  createDonation,
+  cancelSession
 };
 

@@ -54,6 +54,17 @@ const sessionSchema = new mongoose.Schema({
   notes: {
     type: String,
     trim: true
+  },
+  cancellationReason: {
+    type: String,
+    trim: true
+  },
+  cancelledAt: {
+    type: Date
+  },
+  cancelledBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   }
 }, {
   timestamps: true

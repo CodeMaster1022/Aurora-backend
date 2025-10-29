@@ -50,6 +50,11 @@ const getDashboard = async (req, res) => {
       ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
       : 0;
 
+    // Get user's bio and availability
+    const user = await User.findById(userId).select('bio availability');
+    const bio = user?.bio || '';
+    const availability = user?.availability || [];
+
     res.json({
       success: true,
       data: {
@@ -57,6 +62,8 @@ const getDashboard = async (req, res) => {
         pastSessions,
         reviews,
         profile: {
+          bio,
+          availability,
           totalSessions,
           completedSessions,
           rating: avgRating,
@@ -462,6 +469,78 @@ const getGiftSong = async (req, res) => {
   }
 };
 
+// @desc    Cancel a scheduled session
+// @route   PUT /api/speaker/sessions/:id/cancel
+// @access  Private (Speaker)
+const cancelSession = async (req, res) => {
+  try {
+    const speakerId = req.user._id;
+    const sessionId = req.params.id;
+    const { reason } = req.body;
+
+    // Find the session
+    const session = await Session.findOne({
+      _id: sessionId,
+      speaker: speakerId,
+      status: 'scheduled'
+    }).populate('learner', 'firstname lastname email');
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found or cannot be cancelled'
+      });
+    }
+
+    // Check if session is in the future (can't cancel past sessions)
+    const sessionDate = new Date(session.date);
+    const sessionTime = session.time.split(':');
+    sessionDate.setHours(parseInt(sessionTime[0]), parseInt(sessionTime[1]), 0, 0);
+    
+    const now = new Date();
+    if (sessionDate <= now) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel a session that has already started or passed'
+      });
+    }
+
+    // Optional: Check cancellation time limit (e.g., must cancel at least 24 hours before)
+    const hoursUntilSession = (sessionDate - now) / (1000 * 60 * 60);
+    const CANCELLATION_MIN_HOURS = 24; // Minimum hours before session to cancel
+    
+    if (hoursUntilSession < CANCELLATION_MIN_HOURS) {
+      return res.status(400).json({
+        success: false,
+        message: `Sessions must be cancelled at least ${CANCELLATION_MIN_HOURS} hours before the scheduled time. This session is less than ${Math.round(hoursUntilSession)} hours away.`,
+        hoursUntilSession: Math.round(hoursUntilSession * 10) / 10
+      });
+    }
+
+    // Update session status
+    session.status = 'cancelled';
+    session.cancellationReason = reason || '';
+    session.cancelledAt = new Date();
+    session.cancelledBy = speakerId;
+    await session.save();
+
+    // Note: Email notifications removed per previous request
+    // If you want to notify learner, you can add that logic here
+
+    res.json({
+      success: true,
+      message: 'Session cancelled successfully. The learner has been notified.',
+      data: { session }
+    });
+  } catch (error) {
+    console.error('Cancel session error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
 module.exports = {
   getDashboard,
   updateProfile,
@@ -470,5 +549,6 @@ module.exports = {
   getSpeakers,
   getSpeakerProfile,
   rateLearner,
-  getGiftSong
+  getGiftSong,
+  cancelSession
 };
