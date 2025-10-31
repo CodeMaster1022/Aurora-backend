@@ -164,7 +164,7 @@ const registerSpeaker = async (req, res) => {
       avatar: avatarPath,
       age: age || undefined,
       cost: cost || undefined,
-      status: 'review', // Speakers need review
+      status: 'success', // Speakers need review
       termsAccepted: true,
       termsAcceptedAt: new Date(),
       privacyAccepted: true,
