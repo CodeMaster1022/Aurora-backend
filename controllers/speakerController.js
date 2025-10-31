@@ -310,6 +310,31 @@ const getSpeakers = async (req, res) => {
   }
 };
 
+// @desc    Get available topics/interests
+// @route   GET /api/speakers/topics
+// @access  Public
+const getTopics = async (req, res) => {
+  try {
+    // Define available topics - can be moved to a database or config later
+    const topics = [
+      "Technology", "Business", "Science", "Art", "Music", 
+      "Sports", "Travel", "Food", "Health", "Education",
+      "Fashion", "Literature", "History", "Languages", "Gaming"
+    ];
+
+    res.json({
+      success: true,
+      data: { topics }
+    });
+  } catch (error) {
+    console.error('Get topics error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
 // @desc    Get speaker profile by ID
 // @route   GET /api/speakers/:id
 // @access  Public
@@ -597,6 +622,7 @@ module.exports = {
   uploadAvatar,
   getSpeakers,
   getSpeakerProfile,
+  getTopics,
   rateLearner,
   getGiftSong,
   cancelSession
