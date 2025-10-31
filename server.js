@@ -7,6 +7,7 @@ require('dotenv').config();
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
+const googleAuthRoutes = require('./routes/googleAuthRoutes');
 const speakerRoutes = require('./routes/speakerRoutes');
 const speakerPublicRoutes = require('./routes/speakerPublicRoutes');
 const { handleCalendarCallback } = require('./controllers/calendarController');
@@ -61,6 +62,7 @@ app.get('/api/speaker/calendar/callback', (req, res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', googleAuthRoutes);
 app.use('/api/speaker', speakerRoutes);
 app.use('/api/speakers', speakerPublicRoutes);
 app.use('/api/learner', require('./routes/learnerRoutes'));

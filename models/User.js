@@ -27,6 +27,11 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Password is required'],
     minlength: 6
   },
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true // Allows multiple null values
+  },
   role: {
     type: String,
     enum: ['learner', 'admin', 'moderator', 'speaker'],
