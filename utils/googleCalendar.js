@@ -59,7 +59,10 @@ baseOAuth2Client.on('tokens', (tokens) => {
 });
 
 // Get OAuth URL for initiating the flow
-const getAuthUrl = () => {
+const getAuthUrl = (state) => {
+  if (!state) {
+    console.warn('Generating Google Calendar auth URL without state parameter');
+  }
   const scopes = [
     'https://www.googleapis.com/auth/calendar',
     'https://www.googleapis.com/auth/calendar.events'
@@ -68,7 +71,10 @@ const getAuthUrl = () => {
   return baseOAuth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: scopes,
-    prompt: 'consent' // Force consent to get refresh token
+    prompt: 'consent', // Force consent to get refresh token
+    include_granted_scopes: true,
+    state,
+    redirect_uri: process.env.GOOGLE_REDIRECT_URI
   });
 };
 

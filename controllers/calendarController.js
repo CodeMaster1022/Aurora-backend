@@ -11,7 +11,16 @@ const {
 // @access  Private (Speaker)
 const getCalendarAuthUrl = async (req, res) => {
   try {
-    const authUrl = getAuthUrl();
+    const userId = req.user?._id?.toString();
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Authenticated user not found'
+      });
+    }
+
+    const authUrl = getAuthUrl(userId);
     res.json({
       success: true,
       data: { authUrl }
