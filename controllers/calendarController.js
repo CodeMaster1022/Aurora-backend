@@ -1,9 +1,11 @@
 const User = require('../models/User');
-const { 
-  getAuthUrl, 
-  getTokensFromCode, 
-  createOAuthClient, 
-  refreshAccessToken 
+const {
+  getAuthUrl,
+  getTokensFromCode,
+  createOAuthClient,
+  refreshAccessToken,
+  encodeOAuthState,
+  decodeOAuthState
 } = require('../utils/googleCalendar');
 
 // @desc    Initiate Google Calendar OAuth connection
@@ -20,7 +22,21 @@ const getCalendarAuthUrl = async (req, res) => {
       });
     }
 
-    const authUrl = getAuthUrl(userId);
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const statePayload = encodeOAuthState({
+      userId,
+      redirectTo: `${frontendUrl}/speakers/dashboard`,
+      timestamp: Date.now()
+    });
+
+    if (!statePayload) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to initiate OAuth request'
+      });
+    }
+
+    const authUrl = getAuthUrl(statePayload);
     res.json({
       success: true,
       data: { authUrl }
@@ -38,25 +54,33 @@ const getCalendarAuthUrl = async (req, res) => {
 // @route   GET /api/speaker/calendar/callback
 // @access  Public
 const handleCalendarCallback = async (req, res) => {
-  const { code, state } = req.query;
-  console.log("=====================>>>>>>>>")
-  console.log(code, state)
+  const { code, state, error: oauthError, error_description: errorDescription } = req.query;
+  console.log('Google Calendar callback received:', { codePresent: !!code, statePresent: !!state, oauthError, errorDescription });
   try {
+    const statePayload = decodeOAuthState(state);
+    
+    if (!statePayload?.userId) {
+      console.error('Invalid or missing OAuth state payload');
+      return res.redirect(
+        `${process.env.FRONTEND_URL || 'http://localhost:3000'}/speakers/profile?calendar=error&reason=invalid_state`
+      );
+    }
+
+    const frontendRedirect = statePayload.redirectTo || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/speakers/dashboard`;
+
+    if (oauthError) {
+      console.error('Google returned an OAuth error:', oauthError, errorDescription);
+      return res.redirect(
+        `${frontendRedirect}?calendar=error&reason=${encodeURIComponent(oauthError)}`
+      );
+    }
+
     if (!code) {
-      return res.status(400).json({
-        success: false,
-        message: 'Authorization code not provided'
-      });
+      console.error('Authorization code missing in callback');
+      return res.redirect(`${frontendRedirect}?calendar=error&reason=missing_code`);
     }
 
-    const userId = state;
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: 'User ID not provided in state'
-      });
-    }
-
+    const userId = statePayload.userId;
     const tokens = await getTokensFromCode(code);
     
     const user = await User.findByIdAndUpdate(
@@ -73,16 +97,16 @@ const handleCalendarCallback = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: 'User not found',
+        redirect: `${frontendRedirect}?calendar=error`
       });
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/speakers/dashboard?calendar=connected`);
+    res.redirect(`${frontendRedirect}?calendar=connected`);
   } catch (error) {
     console.error('Calendar callback error:', error);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/speakers/dashboard?calendar=error`);
+    res.redirect(`${frontendUrl}/speakers/profile?calendar=error`);
   }
 };
 

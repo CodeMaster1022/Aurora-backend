@@ -58,6 +58,26 @@ baseOAuth2Client.on('tokens', (tokens) => {
   }
 });
 
+const encodeOAuthState = (payload) => {
+  try {
+    return Buffer.from(JSON.stringify(payload)).toString('base64url');
+  } catch (error) {
+    console.error('Failed to encode OAuth state payload:', error);
+    return null;
+  }
+};
+
+const decodeOAuthState = (state) => {
+  if (!state) return null;
+  try {
+    const jsonString = Buffer.from(state, 'base64url').toString('utf8');
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error('Failed to decode OAuth state payload:', error);
+    return null;
+  }
+};
+
 // Get OAuth URL for initiating the flow
 const getAuthUrl = (state) => {
   if (!state) {
@@ -310,5 +330,7 @@ module.exports = {
   refreshAccessToken,
   createCalendarEvent,
   generateMeetLink,
-  getRandomIcebreaker
+  getRandomIcebreaker,
+  encodeOAuthState,
+  decodeOAuthState
 };
