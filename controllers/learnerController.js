@@ -145,7 +145,7 @@ const rateSession = async (req, res) => {
       session: sessionId,
       from: userId
     });
-
+    console.log(existingReview,'existing review')
     if (existingReview) {
       return res.status(400).json({
         success: false,

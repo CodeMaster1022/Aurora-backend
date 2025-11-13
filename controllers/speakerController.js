@@ -8,6 +8,19 @@ const {
   createOAuthClient, 
   refreshAccessToken 
 } = require('../utils/googleCalendar');
+const { searchYouTubeVideos } = require('../utils/youtube');
+
+const DEFAULT_GIFT_PLAYLIST = [
+  { id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up' }, // Rick Astley
+  { id: '9bZkp7q19f0', title: 'Gangnam Style' }, // PSY
+  { id: 'kJQP7kiw5Fk', title: 'Despacito' }, // Luis Fonsi
+  { id: 'YQHsXMglC9A', title: 'Hello' }, // Adele
+  { id: 'fo0X6KoRO1GY', title: 'Shape of You' }, // Ed Sheeran
+  { id: 'fJ9rUzIMcZQ', title: 'Bohemian Rhapsody' }, // Queen
+  { id: 'RgKAFK5djSk', title: 'See You Again' }, // Wiz Khalifa
+  { id: 'uE-1RPDqJAY', title: 'Baby' }, // Justin Bieber
+  { id: 'IOuAbP6nuOM', title: 'Roar' } // Katy Perry
+];
 
 // @desc    Get speaker dashboard data
 // @route   GET /api/speaker/dashboard
@@ -34,11 +47,12 @@ const getDashboard = async (req, res) => {
       .sort({ date: -1, time: -1 });
 
     // Get reviews
-    const reviews = await Review.find({ to: userId })
-      .populate('from', 'firstname lastname avatar')
-      .sort({ createdAt: -1 })
-      .limit(10);
 
+    const reviews = await Review.find({ from: userId })
+      // .populate('from', 'firstname lastname avatar')
+      .sort({ createdAt: -1 })
+      // .limit(10);
+    console.log(reviews, "======================>>>>")
     // Count statistics
     const totalSessions = await Session.countDocuments({ speaker: userId });
     const completedSessions = await Session.countDocuments({
@@ -51,11 +65,12 @@ const getDashboard = async (req, res) => {
       : 0;
 
     // Get user's bio, availability, age, and cost
-    const user = await User.findById(userId).select('bio availability age cost');
+    const user = await User.findById(userId).select('bio availability age cost location');
     const bio = user?.bio || '';
     const availability = user?.availability || [];
     const age = user?.age || undefined;
     const cost = user?.cost || undefined;
+    const location = user?.location || '';
 
     res.json({
       success: true,
@@ -68,6 +83,7 @@ const getDashboard = async (req, res) => {
           availability,
           age,
           cost,
+          location,
           totalSessions,
           completedSessions,
           rating: avgRating,
@@ -90,12 +106,13 @@ const getDashboard = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { bio, availability, age, cost } = req.body;
+    const { bio, availability, age, cost, location } = req.body;
 
     const updateData = {};
     if (bio !== undefined) updateData.bio = bio;
     if (age !== undefined) updateData.age = age;
     if (cost !== undefined) updateData.cost = cost;
+    if (location !== undefined) updateData.location = location;
 
     const user = await User.findByIdAndUpdate(
       userId,
@@ -356,11 +373,11 @@ const getSpeakerProfile = async (req, res) => {
     }
 
     // Get rating and reviews
-    const reviews = await Review.find({ to: speakerId })
-      .populate('from', 'firstname lastname avatar')
-      .sort({ createdAt: -1 })
-      .limit(10);
-
+    const reviews = await Review.find({ to: speakerId }).sort({ createdAt: -1 })
+      // .populate('from', 'firstname lastname avatar')
+      // .sort({ createdAt: -1 })
+      // .limit(10);
+    console.log(reviews, "======================>>>>")
     const avgRating = reviews.length > 0
       ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
       : 0;
@@ -435,7 +452,7 @@ const rateLearner = async (req, res) => {
       session: sessionId,
       from: userId
     });
-
+    console.log(existingReview,'existing review')
     if (existingReview) {
       return res.status(400).json({
         success: false,
@@ -475,22 +492,8 @@ const rateLearner = async (req, res) => {
 const getGiftSong = async (req, res) => {
   try {
     const userId = req.user._id;
-    
-    // Predefined YouTube playlist - you can customize this
-    const playlist = [
-      { id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up' }, // Rick Astley
-      { id: '9bZkp7q19f0', title: 'Gangnam Style' }, // PSY
-      { id: 'kJQP7kiw5Fk', title: 'Despacito' }, // Luis Fonsi
-      { id: 'YQHsXMglC9A', title: 'Hello' }, // Adele
-      { id: 'fo0X6KoRO1GY', title: 'Shape of You' }, // Ed Sheeran
-      { id: 'fJ9rUzIMcZQ', title: 'Bohemian Rhapsody' }, // Queen
-      { id: 'RgKAFK5djSk', title: 'See You Again' }, // Wiz Khalifa
-      { id: 'uE-1RPDqJAY', title: 'Baby' }, // Justin Bieber
-      { id: 'IOuAbP6nuOM', title: 'Roar' }, // Katy Perry
-    ];
-
-    // Get user's viewed songs
     const user = await User.findById(userId);
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -498,31 +501,42 @@ const getGiftSong = async (req, res) => {
       });
     }
 
-    // Filter out already viewed songs
-    const viewedSongs = user.viewedSongs || [];
-    const availableSongs = playlist.filter(song => !viewedSongs.includes(song.id));
+    let playlist = [...DEFAULT_GIFT_PLAYLIST];
 
-    // If all songs have been viewed, reset and shuffle (optional behavior)
-    let songToReturn;
-    if (availableSongs.length === 0) {
-      // Reset viewed songs and pick randomly from full playlist
-      user.viewedSongs = [];
-      await user.save();
-      const randomIndex = Math.floor(Math.random() * playlist.length);
-      songToReturn = playlist[randomIndex];
-    } else {
-      // Pick a random song from available ones
-      const randomIndex = Math.floor(Math.random() * availableSongs.length);
-      songToReturn = availableSongs[randomIndex];
+    if (process.env.YOUTUBE_API_KEY) {
+      try {
+        const requestedQuery = (req.query?.query || req.query?.q || '').toString().trim();
+
+        const dynamicPlaylist = await searchYouTubeVideos({
+          query: requestedQuery.length > 0 ? requestedQuery : undefined,
+          maxResults: 25
+        });
+
+        if (dynamicPlaylist.length > 0) {
+          playlist = dynamicPlaylist;
+        }
+      } catch (youtubeError) {
+        console.error('YouTube search error:', youtubeError);
+      }
     }
 
-    // Mark this song as viewed
+    const viewedSongs = Array.isArray(user.viewedSongs) ? user.viewedSongs : [];
+    let availableSongs = playlist.filter(song => !viewedSongs.includes(song.id));
+
+    if (availableSongs.length === 0) {
+      user.viewedSongs = [];
+      await user.save();
+      availableSongs = playlist;
+    }
+
+    const randomIndex = Math.floor(Math.random() * availableSongs.length);
+    const songToReturn = availableSongs[randomIndex];
+
     if (!user.viewedSongs.includes(songToReturn.id)) {
       user.viewedSongs.push(songToReturn.id);
       await user.save();
     }
 
-    // Return YouTube URL
     const youtubeUrl = `https://www.youtube.com/watch?v=${songToReturn.id}`;
 
     res.json({
