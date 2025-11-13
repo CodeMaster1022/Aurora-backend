@@ -630,8 +630,8 @@ const createDonation = async (req, res) => {
 
     // Create success and cancel URLs
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const successUrl = `${baseUrl}/learners/dashboard?donation=success`;
-    const cancelUrl = `${baseUrl}/learners/dashboard?donation=cancelled`;
+    const successUrl = `${baseUrl}/learners/profile?donation=success`;
+    const cancelUrl = `${baseUrl}/learners/profile?donation=cancelled`;
 
     // Check if Stripe is configured before attempting to create checkout
     if (!process.env.STRIPE_SECRET_KEY) {
