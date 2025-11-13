@@ -69,11 +69,11 @@ const handleCalendarCallback = async (req, res) => {
     }
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/speakers/dashboard?calendar=connected`);
+    res.redirect(`${frontendUrl}/speakers/profile?calendar=connected`);
   } catch (error) {
     console.error('Calendar callback error:', error);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/speakers/dashboard?calendar=error`);
+    res.redirect(`${frontendUrl}/speakers/profile?calendar=error`);
   }
 };
 
