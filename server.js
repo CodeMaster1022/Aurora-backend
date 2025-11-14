@@ -10,6 +10,7 @@ const authRoutes = require('./routes/authRoutes');
 const speakerRoutes = require('./routes/speakerRoutes');
 const speakerPublicRoutes = require('./routes/speakerPublicRoutes');
 const { handleCalendarCallback } = require('./controllers/calendarController');
+const adminRoutes = require('./routes/adminRoutes');
 
 // Initialize Express
 const app = express();
@@ -64,6 +65,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/speaker', speakerRoutes);
 app.use('/api/speakers', speakerPublicRoutes);
 app.use('/api/learner', require('./routes/learnerRoutes'));
+app.use('/api/admin', adminRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

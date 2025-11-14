@@ -30,6 +30,15 @@ const sessionSchema = new mongoose.Schema({
     min: 15,
     max: 120
   },
+  price: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  currency: {
+    type: String,
+    default: 'usd'
+  },
   status: {
     type: String,
     enum: ['scheduled', 'completed', 'cancelled'],

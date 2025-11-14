@@ -497,6 +497,10 @@ const bookSession = async (req, res) => {
     // Use the Meet link from calendar event (or fallback)
     const meetLink = calendarResult.meetLink || generateMeetLink();
 
+    const sessionPrice = typeof speaker.cost === 'number' && !Number.isNaN(speaker.cost)
+      ? speaker.cost
+      : 0;
+
     // Create the session
     const session = await Session.create({
       title,
@@ -508,7 +512,9 @@ const bookSession = async (req, res) => {
       topics: validTopics,
       icebreaker,
       meetingLink: meetLink,
-      status: 'scheduled'
+      status: 'scheduled',
+      price: sessionPrice,
+      currency: 'usd'
     });
 
     // Populate speaker data for response
