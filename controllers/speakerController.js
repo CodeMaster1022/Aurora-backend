@@ -46,13 +46,30 @@ const getDashboard = async (req, res) => {
       .populate('learner', 'firstname lastname email avatar')
       .sort({ date: -1, time: -1 });
 
-    // Get reviews
-
-    const reviews = await Review.find({ from: userId })
-      // .populate('from', 'firstname lastname avatar')
-      .sort({ createdAt: -1 })
-      // .limit(10);
-    console.log(reviews, "======================>>>>")
+    // Get reviews - both received (to speaker) and given (from speaker)
+    const reviewsReceived = await Review.find({ to: userId })
+      .populate('from', 'firstname lastname avatar email')
+      .sort({ createdAt: -1 });
+    
+    const reviewsGiven = await Review.find({ from: userId })
+      .populate('to', 'firstname lastname avatar email')
+      .sort({ createdAt: -1 });
+    
+    // Combine both types of reviews with a type indicator
+    // Explicitly set type field for each review
+    const reviews = [
+      ...reviewsReceived.map(r => {
+        const reviewObj = r.toObject();
+        reviewObj.type = 'received';
+        return reviewObj;
+      }),
+      ...reviewsGiven.map(r => {
+        const reviewObj = r.toObject();
+        reviewObj.type = 'given';
+        return reviewObj;
+      })
+    ];
+    
     // Count statistics
     const totalSessions = await Session.countDocuments({ speaker: userId });
     const completedSessions = await Session.countDocuments({
@@ -60,8 +77,9 @@ const getDashboard = async (req, res) => {
       status: 'completed'
     });
 
-    const avgRating = reviews.length > 0
-      ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+    // Calculate average rating from received reviews only
+    const avgRating = reviewsReceived.length > 0
+      ? reviewsReceived.reduce((sum, review) => sum + review.rating, 0) / reviewsReceived.length
       : 0;
 
     // Get user's bio, availability, age, and cost
@@ -87,7 +105,7 @@ const getDashboard = async (req, res) => {
           totalSessions,
           completedSessions,
           rating: avgRating,
-          reviewsCount: reviews.length
+          reviewsCount: reviewsReceived.length
         }
       }
     });
@@ -457,11 +475,10 @@ const getSpeakerProfile = async (req, res) => {
     }
 
     // Get rating and reviews
-    const reviews = await Review.find({ to: speakerId }).sort({ createdAt: -1 })
-      // .populate('from', 'firstname lastname avatar')
-      // .sort({ createdAt: -1 })
-      // .limit(10);
-    console.log(reviews, "======================>>>>")
+    const reviews = await Review.find({ to: speakerId })
+      .populate('from', 'firstname lastname avatar email')
+      .sort({ createdAt: -1 });
+    
     const avgRating = reviews.length > 0
       ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
       : 0;
