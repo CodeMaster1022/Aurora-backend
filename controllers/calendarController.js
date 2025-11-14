@@ -3,7 +3,8 @@ const {
   getAuthUrl, 
   getTokensFromCode, 
   createOAuthClient, 
-  refreshAccessToken 
+  refreshAccessToken,
+  getValidOAuthClient
 } = require('../utils/googleCalendar');
 
 // @desc    Initiate Google Calendar OAuth connection
@@ -92,11 +93,68 @@ const getCalendarStatus = async (req, res) => {
       });
     }
 
+    // If calendar is connected, verify token is valid and refresh if needed
+    if (user.googleCalendar?.connected) {
+      try {
+        // Create callback function to update user in database
+        const updateUserCallback = async (userId, updateData) => {
+          await User.findByIdAndUpdate(userId, { $set: updateData });
+        };
+
+        // Get a valid OAuth client (will refresh token if expired)
+        await getValidOAuthClient(user, updateUserCallback);
+
+        // Reload user to get updated token info
+        const updatedUser = await User.findById(userId).select('googleCalendar');
+        
+        return res.json({
+          success: true,
+          data: {
+            connected: updatedUser.googleCalendar?.connected || false,
+            expiresAt: updatedUser.googleCalendar?.expiresAt || null,
+            tokenValid: true
+          }
+        });
+      } catch (tokenError) {
+        console.error('Token validation error:', tokenError);
+        // If token refresh fails, the token might be invalid
+        // Mark as disconnected so user can reconnect
+        if (tokenError.message.includes('invalid') || tokenError.message.includes('revoked')) {
+          await User.findByIdAndUpdate(userId, {
+            'googleCalendar.connected': false
+          });
+          
+          return res.json({
+            success: true,
+            data: {
+              connected: false,
+              expiresAt: null,
+              tokenValid: false,
+              message: 'Google Calendar token is invalid. Please reconnect your calendar.'
+            }
+          });
+        }
+        
+        // For other errors, still return status but indicate token might be invalid
+        return res.json({
+          success: true,
+          data: {
+            connected: user.googleCalendar?.connected || false,
+            expiresAt: user.googleCalendar?.expiresAt || null,
+            tokenValid: false,
+            message: 'Unable to verify token. Please try reconnecting your calendar if you experience issues.'
+          }
+        });
+      }
+    }
+
+    // Calendar is not connected
     res.json({
       success: true,
       data: {
-        connected: user.googleCalendar?.connected || false,
-        expiresAt: user.googleCalendar?.expiresAt || null
+        connected: false,
+        expiresAt: null,
+        tokenValid: false
       }
     });
   } catch (error) {

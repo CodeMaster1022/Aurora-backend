@@ -7,7 +7,8 @@ const {
   getRandomIcebreaker, 
   generateMeetLink, 
   createOAuthClient,
-  refreshAccessToken 
+  refreshAccessToken,
+  getValidOAuthClient
 } = require('../utils/googleCalendar');
 const { createDonationCheckout } = require('../utils/stripe');
 
@@ -347,8 +348,8 @@ const bookSession = async (req, res) => {
     }
 
     // Combine date and time properly: create date string in ISO format (YYYY-MM-DDTHH:MM:SS)
-    // This avoids timezone parsing issues
-    const dateTimeString = `${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+    // The time is in UTC (sent from frontend), so we need to treat it as UTC
+    const dateTimeString = `${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00Z`;
     sessionDate = new Date(dateTimeString);
     
     if (isNaN(sessionDate.getTime())) {
@@ -382,7 +383,8 @@ const bookSession = async (req, res) => {
     }
 
     // Validate availability - check if speaker is available on the requested day and time
-    const dayOfWeek = sessionDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    // Use UTC day to match frontend calculation (availability is stored by day of week)
+    const dayOfWeek = sessionDate.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const requestedDay = dayNames[dayOfWeek];
     
@@ -398,11 +400,13 @@ const bookSession = async (req, res) => {
     }
 
     // Check if the requested time is within speaker's available hours
-    const requestedTime = time; // Format: HH:MM
-    const startTime = dayAvailability.startTime || '00:00';
-    const endTime = dayAvailability.endTime || '23:59';
+    // Note: Availability times are stored in UTC format (HH:MM)
+    // The requested time is also in UTC (sent from frontend after timezone conversion)
+    const requestedTime = time; // Format: HH:MM (UTC)
+    const startTime = dayAvailability.startTime || '00:00'; // UTC
+    const endTime = dayAvailability.endTime || '23:59'; // UTC
     
-    // Compare times (HH:MM format)
+    // Compare times (HH:MM format) - both in UTC
     const timeToMinutes = (timeStr) => {
       const [h, m] = timeStr.split(':').map(Number);
       return h * 60 + m;
@@ -418,7 +422,7 @@ const bookSession = async (req, res) => {
     if (requestedMinutes < startMinutes || sessionEndMinutes > endMinutes) {
       return res.status(400).json({
         success: false,
-        message: `Speaker is only available between ${startTime} and ${endTime} on ${requestedDay.charAt(0).toUpperCase() + requestedDay.slice(1)}. Please select a time within this range.`
+        message: `Speaker is only available between ${startTime} and ${endTime} UTC on ${requestedDay.charAt(0).toUpperCase() + requestedDay.slice(1)}. Please select a time within this range.`
       });
     }
 
@@ -450,34 +454,22 @@ const bookSession = async (req, res) => {
       }
     }
 
-    // Create OAuth client using speaker's credentials
-    let oauthClient = createOAuthClient(
-      speaker.googleCalendar.accessToken,
-      speaker.googleCalendar.refreshToken
-    );
+    // Get a valid OAuth client (will automatically refresh token if expired)
+    let oauthClient;
+    try {
+      // Create callback function to update speaker in database
+      const updateUserCallback = async (userId, updateData) => {
+        await User.findByIdAndUpdate(userId, { $set: updateData });
+      };
 
-    // Check if access token is expired and refresh if needed
-    if (speaker.googleCalendar.expiresAt && new Date() >= new Date(speaker.googleCalendar.expiresAt)) {
-      try {
-        const refreshedTokens = await refreshAccessToken(oauthClient);
-        
-        // Update the speaker's access token in the database
-        await User.findByIdAndUpdate(speakerId, {
-          'googleCalendar.accessToken': refreshedTokens.accessToken,
-          'googleCalendar.expiresAt': refreshedTokens.expiryDate
-        });
-
-        oauthClient = createOAuthClient(
-          refreshedTokens.accessToken,
-          speaker.googleCalendar.refreshToken
-        );
-      } catch (refreshError) {
-        console.error('Error refreshing access token:', refreshError);
-        return res.status(500).json({
-          success: false,
-          message: 'Failed to refresh Google Calendar access. Please ask the speaker to reconnect their calendar.'
-        });
-      }
+      // Get valid OAuth client (automatically refreshes token if expired or expiring soon)
+      oauthClient = await getValidOAuthClient(speaker, updateUserCallback);
+    } catch (tokenError) {
+      console.error('Error getting valid OAuth client:', tokenError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to access Google Calendar. Please ask the speaker to reconnect their calendar.'
+      });
     }
 
     // Create calendar event with Google Meet link

@@ -106,13 +106,14 @@ const getDashboard = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { bio, availability, age, cost, location } = req.body;
+    const { bio, availability, age, cost, location, timezone } = req.body;
 
     const updateData = {};
     if (bio !== undefined) updateData.bio = bio;
     if (age !== undefined) updateData.age = age;
     if (cost !== undefined) updateData.cost = cost;
     if (location !== undefined) updateData.location = location;
+    if (timezone !== undefined) updateData.timezone = timezone;
 
     const user = await User.findByIdAndUpdate(
       userId,
@@ -140,6 +141,52 @@ const updateProfile = async (req, res) => {
   }
 };
 
+// Helper function to convert time from timezone to UTC
+const convertTimeToUTC = (time, date, timezone) => {
+  try {
+    // Parse time (HH:MM format)
+    const [hours, minutes] = time.split(':').map(Number);
+    const [year, month, day] = date.split('-').map(Number);
+    
+    // Create a date string for the target date
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    
+    // Create a date at noon UTC on the target date to calculate offset
+    const noonUTC = new Date(`${dateStr}T12:00:00Z`);
+    
+    // Get what time noon UTC is in the speaker's timezone
+    const tzNoon = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(noonUTC);
+    
+    const tzNoonHour = parseInt(tzNoon.find(p => p.type === 'hour')?.value || '12');
+    const tzNoonMin = parseInt(tzNoon.find(p => p.type === 'minute')?.value || '0');
+    
+    // Calculate offset: if noon UTC = 5 PM in timezone, offset is +5 hours
+    const tzOffsetMinutes = (tzNoonHour * 60 + tzNoonMin) - (12 * 60);
+    
+    // Convert desired time to UTC
+    const desiredTotalMinutes = hours * 60 + minutes;
+    const utcTotalMinutes = desiredTotalMinutes - tzOffsetMinutes;
+    
+    // Normalize to 0-1439 (minutes in a day)
+    let normalizedMinutes = utcTotalMinutes;
+    while (normalizedMinutes < 0) normalizedMinutes += 1440;
+    while (normalizedMinutes >= 1440) normalizedMinutes -= 1440;
+    
+    const utcHours = Math.floor(normalizedMinutes / 60);
+    const utcMins = normalizedMinutes % 60;
+    
+    return `${String(utcHours).padStart(2, '0')}:${String(utcMins).padStart(2, '0')}`;
+  } catch (error) {
+    console.error('Error converting time to UTC:', error);
+    return time; // Return original time on error
+  }
+};
+
 // @desc    Update speaker availability
 // @route   PUT /api/speaker/availability
 // @access  Private (Speaker)
@@ -155,16 +202,53 @@ const updateAvailability = async (req, res) => {
       });
     }
 
-    const user = await User.findByIdAndUpdate(
+    // Get user to access their timezone
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Get speaker's timezone (default to UTC if not set)
+    const speakerTimezone = user.timezone || 'UTC';
+
+    // Convert availability times from speaker's timezone to UTC
+    // We need a reference date - use next Monday as a reference
+    const today = new Date();
+    const nextMonday = new Date(today);
+    nextMonday.setDate(today.getDate() + ((1 + 7 - today.getDay()) % 7));
+    const referenceDate = nextMonday.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    const convertedAvailability = availability.map(avail => {
+      if (!avail.isAvailable || !avail.startTime || !avail.endTime) {
+        return avail; // Return as-is if not available or missing times
+      }
+
+      // Convert times to UTC
+      // Note: We use a reference date for conversion, but the day of week is what matters
+      const startTimeUTC = convertTimeToUTC(avail.startTime, referenceDate, speakerTimezone);
+      const endTimeUTC = convertTimeToUTC(avail.endTime, referenceDate, speakerTimezone);
+
+      return {
+        ...avail,
+        startTime: startTimeUTC,
+        endTime: endTimeUTC
+      };
+    });
+
+    // Update user with converted availability (stored in UTC)
+    const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { availability },
+      { availability: convertedAvailability },
       { new: true }
     ).select('-password');
 
     res.json({
       success: true,
       message: 'Availability updated successfully',
-      data: { user }
+      data: { user: updatedUser }
     });
   } catch (error) {
     console.error('Update availability error:', error);

@@ -149,13 +149,46 @@ const createOAuthClient = (accessToken, refreshToken) => {
     refresh_token: refreshToken
   });
 
+  // Configure the OAuth2 client's internal HTTP client with extended timeout
+  // This ensures token refresh requests have sufficient time to complete
+  if (client._client && client._client.request) {
+    const originalRequest = client._client.request.bind(client._client);
+    client._client.request = function(opts, callback) {
+      // Set extended timeout for OAuth token refresh (60 seconds)
+      if (!opts.timeout) {
+        opts.timeout = 60000;
+      }
+      
+      // If callback is provided, use callback pattern
+      if (callback) {
+        return originalRequest(opts, callback);
+      }
+      
+      // Otherwise return promise
+      return originalRequest(opts);
+    };
+  }
+
+  // The Google OAuth2 client will automatically refresh the token when making API calls
+  // if a refresh_token is provided and the access_token is expired
+
   return client;
 };
 
 // Refresh access token if expired
 const refreshAccessToken = async (client) => {
   try {
-    const { credentials } = await client.refreshAccessToken();
+    // Use retry logic with exponential backoff for token refresh
+    const { credentials } = await retryWithBackoff(async () => {
+      try {
+        return await client.refreshAccessToken();
+      } catch (error) {
+        // Log the error but let retry logic handle it
+        console.log(`Token refresh attempt failed: ${error.code || error.message}`);
+        throw error;
+      }
+    }, 3, 1000); // Retry up to 3 times with exponential backoff starting at 1 second
+    
     client.setCredentials(credentials);
     return {
       accessToken: credentials.access_token,
@@ -163,8 +196,120 @@ const refreshAccessToken = async (client) => {
     };
   } catch (error) {
     console.error('Error refreshing access token:', error);
+    
+    // Provide more helpful error message for timeout errors
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNRESET' || error.code === 'ENOTFOUND') {
+      throw new Error('Connection timeout to Google OAuth servers after multiple retry attempts. Please check your network connection, firewall settings, or try again later.');
+    }
+    
     throw error;
   }
+};
+
+/**
+ * Get a valid OAuth client for a user, automatically refreshing the token if expired or about to expire
+ * @param {Object} user - User document with googleCalendar data
+ * @param {Function} updateUserCallback - Optional callback to update user in database (userId, updateData) => Promise
+ * @returns {Object} OAuth2 client that is ready to use
+ */
+const getValidOAuthClient = async (user, updateUserCallback = null) => {
+  if (!user || !user.googleCalendar || !user.googleCalendar.connected) {
+    throw new Error('Google Calendar is not connected for this user');
+  }
+
+  if (!user.googleCalendar.accessToken || !user.googleCalendar.refreshToken) {
+    throw new Error('Google Calendar credentials are missing');
+  }
+
+  // Create OAuth client
+  let oauthClient = createOAuthClient(
+    user.googleCalendar.accessToken,
+    user.googleCalendar.refreshToken
+  );
+
+  // Set up event listener to catch automatic token refreshes during API calls
+  // This ensures the database is updated if the Google OAuth client automatically refreshes the token
+  if (updateUserCallback && typeof updateUserCallback === 'function') {
+    oauthClient.on('tokens', (tokens) => {
+      if (tokens.refresh_token) {
+        // If we get a new refresh token, update it
+        updateUserCallback(user._id, {
+          'googleCalendar.refreshToken': tokens.refresh_token
+        }).catch(err => console.error('Error updating refresh token:', err));
+      }
+      if (tokens.access_token) {
+        // Update access token when it's automatically refreshed
+        const expiryDate = tokens.expiry_date ? new Date(tokens.expiry_date) : null;
+        updateUserCallback(user._id, {
+          'googleCalendar.accessToken': tokens.access_token,
+          'googleCalendar.expiresAt': expiryDate
+        }).catch(err => console.error('Error updating access token:', err));
+      }
+    });
+  }
+
+  // Check if token is expired or about to expire (refresh 5 minutes before expiry)
+  const now = new Date();
+  const expiresAt = user.googleCalendar.expiresAt ? new Date(user.googleCalendar.expiresAt) : null;
+  const REFRESH_BUFFER_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+  // If token is expired or will expire within 5 minutes, refresh it proactively
+  if (!expiresAt || (expiresAt.getTime() - now.getTime()) < REFRESH_BUFFER_MS) {
+    try {
+      console.log('Access token expired or expiring soon, refreshing...');
+      const refreshedTokens = await refreshAccessToken(oauthClient);
+
+      // Update the user's access token in the database
+      const updateData = {
+        'googleCalendar.accessToken': refreshedTokens.accessToken,
+        'googleCalendar.expiresAt': refreshedTokens.expiryDate
+      };
+
+      // If updateUserCallback is provided, use it (for updating in database)
+      if (updateUserCallback && typeof updateUserCallback === 'function') {
+        await updateUserCallback(user._id, updateData);
+      }
+
+      // Update the local user object to reflect the new token
+      user.googleCalendar.accessToken = refreshedTokens.accessToken;
+      user.googleCalendar.expiresAt = refreshedTokens.expiryDate;
+
+      // Recreate OAuth client with new token (event listener will be set up again)
+      oauthClient = createOAuthClient(
+        refreshedTokens.accessToken,
+        user.googleCalendar.refreshToken
+      );
+
+      // Set up event listener again on the new client
+      if (updateUserCallback && typeof updateUserCallback === 'function') {
+        oauthClient.on('tokens', (tokens) => {
+          if (tokens.refresh_token) {
+            updateUserCallback(user._id, {
+              'googleCalendar.refreshToken': tokens.refresh_token
+            }).catch(err => console.error('Error updating refresh token:', err));
+          }
+          if (tokens.access_token) {
+            const expiryDate = tokens.expiry_date ? new Date(tokens.expiry_date) : null;
+            updateUserCallback(user._id, {
+              'googleCalendar.accessToken': tokens.access_token,
+              'googleCalendar.expiresAt': expiryDate
+            }).catch(err => console.error('Error updating access token:', err));
+          }
+        });
+      }
+
+      console.log('Access token refreshed successfully');
+    } catch (refreshError) {
+      console.error('Error refreshing access token:', refreshError);
+      
+      // If refresh fails, throw error so caller can handle it
+      // The OAuth client is still returned, but the token might be invalid
+      // The Google OAuth2 client library might still try to refresh it automatically during API calls
+      throw new Error(`Failed to refresh access token: ${refreshError.message}`);
+    }
+  }
+
+  return oauthClient;
 };
 
 /**
@@ -302,6 +447,7 @@ module.exports = {
   getTokensFromCode,
   createOAuthClient,
   refreshAccessToken,
+  getValidOAuthClient,
   createCalendarEvent,
   generateMeetLink,
   getRandomIcebreaker

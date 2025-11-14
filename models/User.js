@@ -63,6 +63,11 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  timezone: {
+    type: String,
+    trim: true,
+    default: 'UTC'
+  },
   age: {
     type: Number,
     min: 18,
