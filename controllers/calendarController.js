@@ -4,7 +4,8 @@ const {
   getTokensFromCode, 
   createOAuthClient, 
   refreshAccessToken,
-  getValidOAuthClient
+  getValidOAuthClient,
+  getCalendarTimezone
 } = require('../utils/googleCalendar');
 
 // @desc    Initiate Google Calendar OAuth connection
@@ -51,13 +52,27 @@ const handleCalendarCallback = async (req, res) => {
 
     const tokens = await getTokensFromCode(code);
     
+    // Create OAuth client to fetch calendar timezone
+    const oauthClient = createOAuthClient(tokens.accessToken, tokens.refreshToken);
+    
+    // Fetch the calendar timezone
+    let calendarTimezone = 'UTC'; // Default fallback
+    try {
+      calendarTimezone = await getCalendarTimezone(oauthClient);
+      console.log('Fetched calendar timezone:', calendarTimezone);
+    } catch (timezoneError) {
+      console.error('Error fetching calendar timezone, using UTC as fallback:', timezoneError);
+      // Continue with UTC as fallback
+    }
+    
     const user = await User.findByIdAndUpdate(
       userId,
       {
         'googleCalendar.accessToken': tokens.accessToken,
         'googleCalendar.refreshToken': tokens.refreshToken,
         'googleCalendar.expiresAt': tokens.expiryDate,
-        'googleCalendar.connected': true
+        'googleCalendar.connected': true,
+        'googleCalendar.timezone': calendarTimezone
       },
       { new: true }
     ).select('-password');
@@ -112,6 +127,7 @@ const getCalendarStatus = async (req, res) => {
           data: {
             connected: updatedUser.googleCalendar?.connected || false,
             expiresAt: updatedUser.googleCalendar?.expiresAt || null,
+            timezone: updatedUser.googleCalendar?.timezone || null,
             tokenValid: true
           }
         });
@@ -129,6 +145,7 @@ const getCalendarStatus = async (req, res) => {
             data: {
               connected: false,
               expiresAt: null,
+              timezone: null,
               tokenValid: false,
               message: 'Google Calendar token is invalid. Please reconnect your calendar.'
             }
@@ -141,6 +158,7 @@ const getCalendarStatus = async (req, res) => {
           data: {
             connected: user.googleCalendar?.connected || false,
             expiresAt: user.googleCalendar?.expiresAt || null,
+            timezone: user.googleCalendar?.timezone || null,
             tokenValid: false,
             message: 'Unable to verify token. Please try reconnecting your calendar if you experience issues.'
           }
@@ -154,6 +172,7 @@ const getCalendarStatus = async (req, res) => {
       data: {
         connected: false,
         expiresAt: null,
+        timezone: null,
         tokenValid: false
       }
     });
@@ -178,7 +197,8 @@ const disconnectCalendar = async (req, res) => {
         'googleCalendar.accessToken': null,
         'googleCalendar.refreshToken': null,
         'googleCalendar.expiresAt': null,
-        'googleCalendar.connected': false
+        'googleCalendar.connected': false,
+        'googleCalendar.timezone': null
       },
       { new: true }
     ).select('-password');

@@ -229,8 +229,9 @@ const updateAvailability = async (req, res) => {
       });
     }
 
-    // Get speaker's timezone (default to UTC if not set)
-    const speakerTimezone = user.timezone || 'UTC';
+    // Use Google Calendar timezone if connected (primary), otherwise fallback to profile timezone, then UTC
+    // When calendar is connected, we use only the calendar timezone
+    const speakerTimezone = user.googleCalendar?.timezone || user.timezone || 'UTC';
 
     // Convert availability times from speaker's timezone to UTC
     // We need a reference date - use next Monday as a reference
@@ -465,7 +466,7 @@ const getSpeakerProfile = async (req, res) => {
       _id: speakerId,
       role: 'speaker',
       isActive: true
-    }).select('-password');
+    }).select('-password -googleCalendar.accessToken -googleCalendar.refreshToken');
 
     if (!speaker) {
       return res.status(404).json({
@@ -489,14 +490,23 @@ const getSpeakerProfile = async (req, res) => {
       status: 'completed'
     });
 
+    // Ensure googleCalendar.timezone is included in response
+    const speakerData = speaker.toObject();
+    
     res.json({
       success: true,
       data: {
         speaker: {
-          ...speaker.toObject(),
+          ...speakerData,
           rating: avgRating,
           reviewsCount: reviews.length,
-          totalSessions
+          totalSessions,
+          // Explicitly include googleCalendar with timezone (but not sensitive tokens)
+          googleCalendar: speakerData.googleCalendar ? {
+            timezone: speakerData.googleCalendar.timezone,
+            connected: speakerData.googleCalendar.connected,
+            expiresAt: speakerData.googleCalendar.expiresAt
+          } : undefined
         },
         reviews
       }

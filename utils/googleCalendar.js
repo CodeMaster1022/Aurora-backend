@@ -313,6 +313,27 @@ const getValidOAuthClient = async (user, updateUserCallback = null) => {
 };
 
 /**
+ * Get the timezone of the user's primary Google Calendar
+ * @param {Object} oauthClient - OAuth2 client for the user
+ * @returns {Promise<string>} The timezone string (e.g., 'America/New_York')
+ */
+const getCalendarTimezone = async (oauthClient) => {
+  try {
+    const calendarInfo = await calendar.calendars.get({
+      auth: oauthClient,
+      calendarId: 'primary'
+    });
+    
+    // Return the timezone from the calendar settings, default to UTC if not found
+    return calendarInfo.data.timeZone || 'UTC';
+  } catch (error) {
+    console.error('Error fetching calendar timezone:', error);
+    // Return UTC as fallback if we can't fetch the timezone
+    return 'UTC';
+  }
+};
+
+/**
  * Generate a random icebreaker question
  */
 const getRandomIcebreaker = () => {
@@ -350,7 +371,8 @@ const createCalendarEvent = async ({
   topics,
   icebreaker,
   startDateTime,
-  duration = 30 // Always 30 minutes
+  duration = 30, // Always 30 minutes
+  timezone = 'UTC' // Calendar timezone, defaults to UTC if not provided
 }) => {
   try {
     const endDateTime = new Date(startDateTime);
@@ -370,11 +392,11 @@ Join the meeting using the link below.
       `.trim(),
       start: {
         dateTime: startDateTime.toISOString(),
-        timeZone: 'UTC',
+        timeZone: timezone,
       },
       end: {
         dateTime: endDateTime.toISOString(),
-        timeZone: 'UTC',
+        timeZone: timezone,
       },
       attendees: [
         { email: speakerEmail },
@@ -448,6 +470,7 @@ module.exports = {
   createOAuthClient,
   refreshAccessToken,
   getValidOAuthClient,
+  getCalendarTimezone,
   createCalendarEvent,
   generateMeetLink,
   getRandomIcebreaker

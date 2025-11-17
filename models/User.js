@@ -111,6 +111,10 @@ const userSchema = new mongoose.Schema({
     connected: {
       type: Boolean,
       default: false
+    },
+    timezone: {
+      type: String,
+      trim: true
     }
   },
   // Terms and Privacy acceptance

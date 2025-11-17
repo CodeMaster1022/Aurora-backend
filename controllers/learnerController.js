@@ -473,6 +473,9 @@ const bookSession = async (req, res) => {
     }
 
     // Create calendar event with Google Meet link
+    // Use the speaker's saved calendar timezone, or fallback to UTC
+    const calendarTimezone = speaker.googleCalendar?.timezone || 'UTC';
+    
     const calendarResult = await createCalendarEvent({
       oauthClient,
       speakerEmail: speaker.email,
@@ -483,7 +486,8 @@ const bookSession = async (req, res) => {
       topics: validTopics,
       icebreaker,
       startDateTime: sessionDate,
-      duration: 30 // Always 30 minutes
+      duration: 30, // Always 30 minutes
+      timezone: calendarTimezone
     });
 
     // Use the Meet link from calendar event (or fallback)
