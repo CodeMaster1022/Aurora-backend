@@ -10,7 +10,8 @@ const {
   uploadAvatar,
   rateLearner,
   getGiftSong,
-  cancelSession
+  cancelSession,
+  completeSession
 } = require('../controllers/speakerController');
 const {
   getCalendarAuthUrl,
@@ -49,6 +50,7 @@ router.post('/avatar', upload.single('avatar'), uploadAvatar);
 // Session rating routes
 router.post('/sessions/:id/review', rateLearner);
 router.put('/sessions/:id/cancel', cancelSession);
+router.put('/sessions/:id/complete', completeSession);
 router.get('/gift-song', getGiftSong);
 
 // Google Calendar routes

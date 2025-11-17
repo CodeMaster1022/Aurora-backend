@@ -739,6 +739,46 @@ const cancelSession = async (req, res) => {
   }
 };
 
+// @desc    Complete a scheduled session
+// @route   PUT /api/speaker/sessions/:id/complete
+// @access  Private (Speaker)
+const completeSession = async (req, res) => {
+  try {
+    const speakerId = req.user._id;
+    const sessionId = req.params.id;
+
+    // Find the session
+    const session = await Session.findOne({
+      _id: sessionId,
+      speaker: speakerId,
+      status: 'scheduled'
+    }).populate('learner', 'firstname lastname email');
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found or cannot be completed'
+      });
+    }
+
+    // Update session status to completed
+    session.status = 'completed';
+    await session.save();
+
+    res.json({
+      success: true,
+      message: 'Session marked as completed successfully',
+      data: { session }
+    });
+  } catch (error) {
+    console.error('Complete session error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
 module.exports = {
   getDashboard,
   updateProfile,
@@ -750,5 +790,6 @@ module.exports = {
   getTopics,
   rateLearner,
   getGiftSong,
-  cancelSession
+  cancelSession,
+  completeSession
 };

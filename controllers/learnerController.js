@@ -619,7 +619,18 @@ const cancelSession = async (req, res) => {
 const createDonation = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { amount = 500 } = req.body; // Default $5.00
+    let { amount = 500 } = req.body; // Default $5.00
+
+    // Validate and normalize amount
+    amount = Math.round(Number(amount));
+    const MIN_DONATION = 50; // Minimum $0.50
+    
+    if (isNaN(amount) || amount < MIN_DONATION) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum donation amount is $${(MIN_DONATION / 100).toFixed(2)}`
+      });
+    }
 
     // Get user to get their email
     const user = await User.findById(userId);
