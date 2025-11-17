@@ -166,6 +166,17 @@ const registerSpeaker = async (req, res) => {
       }
     }
 
+    // Parse availability if it's a string (from FormData)
+    let availabilityArray = [];
+    const availability = req.body.availability;
+    if (availability) {
+      try {
+        availabilityArray = typeof availability === 'string' ? JSON.parse(availability) : availability;
+      } catch (e) {
+        availabilityArray = Array.isArray(availability) ? availability : [];
+      }
+    }
+
     // Create speaker user
     const user = await User.create({
       firstname: firstName,
@@ -180,6 +191,7 @@ const registerSpeaker = async (req, res) => {
       avatar: avatarPath,
       age: age || undefined,
       cost: cost || undefined,
+      availability: availabilityArray.length > 0 ? availabilityArray : undefined,
       status: 'success', // Speakers need review
       termsAccepted: true,
       termsAcceptedAt: new Date(),
