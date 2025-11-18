@@ -559,16 +559,30 @@ const getGiftSong = async (req, res) => {
     }
 
     const viewedSongs = Array.isArray(user.viewedSongs) ? user.viewedSongs : [];
-    let availableSongs = playlist.filter(song => !viewedSongs.includes(song.id));
+    let availableSongs = playlist.filter(song => song && song.id && !viewedSongs.includes(song.id));
 
     if (availableSongs.length === 0) {
       user.viewedSongs = [];
       await user.save();
-      availableSongs = playlist;
+      availableSongs = playlist.filter(song => song && song.id);
+    }
+
+    if (availableSongs.length === 0) {
+      return res.status(500).json({
+        success: false,
+        message: 'No songs available. Please try again later.'
+      });
     }
 
     const randomIndex = Math.floor(Math.random() * availableSongs.length);
     const songToReturn = availableSongs[randomIndex];
+
+    if (!songToReturn || !songToReturn.id) {
+      return res.status(500).json({
+        success: false,
+        message: 'Invalid song data. Please try again.'
+      });
+    }
 
     if (!user.viewedSongs.includes(songToReturn.id)) {
       user.viewedSongs.push(songToReturn.id);
@@ -582,7 +596,7 @@ const getGiftSong = async (req, res) => {
       data: {
         url: youtubeUrl,
         videoId: songToReturn.id,
-        title: songToReturn.title
+        title: songToReturn.title || 'YouTube Video'
       }
     });
   } catch (error) {

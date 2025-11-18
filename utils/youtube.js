@@ -23,29 +23,51 @@ const searchYouTubeVideos = async (options = {}) => {
     maxResults = 25
   } = options;
 
-  const youtube = google.youtube({
-    version: 'v3',
-    auth: apiKey
-  });
+  try {
+    const youtube = google.youtube({
+      version: 'v3',
+      auth: apiKey
+    });
 
-  const response = await youtube.search.list({
-    part: 'snippet',
-    q: query,
-    type: 'video',
-    maxResults: Math.min(Math.max(parseInt(maxResults, 10) || 25, 1), 50),
-    safeSearch: 'moderate',
-    videoEmbeddable: 'true',
-    order: 'relevance'
-  });
+    const response = await youtube.search.list({
+      part: 'snippet',
+      q: query,
+      type: 'video',
+      maxResults: Math.min(Math.max(parseInt(maxResults, 10) || 25, 1), 50),
+      safeSearch: 'moderate',
+      videoEmbeddable: 'true',
+      order: 'relevance'
+    });
 
-  const items = response.data.items || [];
+    const items = response.data.items || [];
 
-  return items
-    .filter(item => item.id && item.id.videoId)
-    .map(item => ({
-      id: item.id.videoId,
-      title: item.snippet?.title || 'YouTube Video'
-    }));
+    if (items.length === 0) {
+      console.warn('YouTube API returned no results for query:', query);
+      return [];
+    }
+
+    return items
+      .filter(item => item.id && item.id.videoId)
+      .map(item => ({
+        id: item.id.videoId,
+        title: item.snippet?.title || 'YouTube Video'
+      }));
+  } catch (error) {
+    console.error('YouTube API error:', {
+      message: error.message,
+      code: error.code,
+      errors: error.errors
+    });
+    
+    // Re-throw with more context
+    if (error.code === 403) {
+      throw new Error('YouTube API quota exceeded or access denied');
+    } else if (error.code === 400) {
+      throw new Error('Invalid YouTube API request');
+    } else {
+      throw new Error(`YouTube API error: ${error.message || 'Unknown error'}`);
+    }
+  }
 };
 
 module.exports = {
