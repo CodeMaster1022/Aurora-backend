@@ -320,11 +320,11 @@ const bookSession = async (req, res) => {
     // Generate icebreaker question
     const icebreaker = getRandomIcebreaker();
 
-    // Parse date and time - handle timezone correctly
+    // Parse date and time - time is in speaker's timezone
     // Date from HTML input is in YYYY-MM-DD format
-    // Time from HTML input is in HH:MM format
-    // Combine them properly to avoid timezone issues
-    let sessionDate;
+    // Time from frontend is in HH:MM format in speaker's timezone
+    // Get speaker's timezone for date calculations
+    const speakerTimezone = speaker.googleCalendar?.timezone || 'UTC';
     
     // Validate time format first
     const timeMatch = time.match(/^(\d{1,2}):(\d{2})$/);
@@ -347,10 +347,26 @@ const bookSession = async (req, res) => {
       });
     }
 
-    // Combine date and time properly: create date string in ISO format (YYYY-MM-DDTHH:MM:SS)
-    // The time is in UTC (sent from frontend), so we need to treat it as UTC
-    const dateTimeString = `${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00Z`;
-    sessionDate = new Date(dateTimeString);
+    // Parse date components
+    const [year, month, day] = date.split('-').map(Number);
+    if (!year || !month || !day) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid date format. Please use YYYY-MM-DD format'
+      });
+    }
+
+    // Create a Date object representing the date/time in the speaker's timezone
+    // We'll use a timezone-aware approach by creating the date string without Z suffix
+    // and letting the createCalendarEvent function handle timezone conversion
+    // For now, create Date in UTC from the components (will be adjusted by calendar API)
+    // Note: The time string is saved as-is in speaker's timezone
+    const dateTimeString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+    
+    // Create Date object - we'll use it for day calculation and comparisons
+    // Since we need to work with the date in speaker's timezone, we'll calculate day of week
+    // using the date components directly (UTC date) which matches how frontend calculates it
+    const sessionDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
     
     if (isNaN(sessionDate.getTime())) {
       console.log('Invalid date/time combination:', { date, time, dateTimeString });
@@ -362,10 +378,9 @@ const bookSession = async (req, res) => {
 
     console.log('Parsed session date:', { 
       originalDate: date, 
-      originalTime: time, 
-      combined: dateTimeString,
-      parsed: sessionDate.toISOString(),
-      local: sessionDate.toString()
+      originalTime: time,
+      timezone: speakerTimezone,
+      parsed: sessionDate.toISOString()
     });
 
     // Validate that session is in the future
@@ -383,7 +398,7 @@ const bookSession = async (req, res) => {
     }
 
     // Validate availability - check if speaker is available on the requested day and time
-    // Use UTC day to match frontend calculation (availability is stored by day of week)
+    // Calculate day of week from date components (matches frontend calculation)
     const dayOfWeek = sessionDate.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const requestedDay = dayNames[dayOfWeek];
@@ -400,13 +415,13 @@ const bookSession = async (req, res) => {
     }
 
     // Check if the requested time is within speaker's available hours
-    // Note: Availability times are stored in UTC format (HH:MM)
-    // The requested time is also in UTC (sent from frontend after timezone conversion)
-    const requestedTime = time; // Format: HH:MM (UTC)
-    const startTime = dayAvailability.startTime || '00:00'; // UTC
-    const endTime = dayAvailability.endTime || '23:59'; // UTC
+    // Note: Availability times are stored in speaker's timezone (HH:MM)
+    // The requested time is also in speaker's timezone (sent from frontend)
+    const requestedTime = time; // Format: HH:MM (in speaker's timezone)
+    const startTime = dayAvailability.startTime || '00:00'; // In speaker's timezone
+    const endTime = dayAvailability.endTime || '23:59'; // In speaker's timezone
     
-    // Compare times (HH:MM format) - both in UTC
+    // Compare times (HH:MM format) - both in speaker's timezone
     const timeToMinutes = (timeStr) => {
       const [h, m] = timeStr.split(':').map(Number);
       return h * 60 + m;
@@ -422,7 +437,7 @@ const bookSession = async (req, res) => {
     if (requestedMinutes < startMinutes || sessionEndMinutes > endMinutes) {
       return res.status(400).json({
         success: false,
-        message: `Speaker is only available between ${startTime} and ${endTime} UTC on ${requestedDay.charAt(0).toUpperCase() + requestedDay.slice(1)}. Please select a time within this range.`
+        message: `Speaker is only available between ${startTime} and ${endTime} on ${requestedDay.charAt(0).toUpperCase() + requestedDay.slice(1)}. Please select a time within this range.`
       });
     }
 
@@ -473,8 +488,15 @@ const bookSession = async (req, res) => {
     }
 
     // Create calendar event with Google Meet link
-    // Use the speaker's saved calendar timezone, or fallback to UTC
-    const calendarTimezone = speaker.googleCalendar?.timezone || 'UTC';
+    // Use the speaker's saved calendar timezone (already retrieved above)
+    // The date/time is in speaker's timezone - create Date object that represents it correctly
+    // We need to create a Date object from the date/time components as if they're in the speaker's timezone
+    // Since Date objects are UTC internally, we'll create it from components
+    // and the createCalendarEvent function will use the timezone parameter
+    
+    // Create Date object for calendar event - this represents the date/time in speaker's timezone
+    // The createCalendarEvent function will handle the timezone conversion
+    const calendarStartDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
     
     const calendarResult = await createCalendarEvent({
       oauthClient,
@@ -485,9 +507,9 @@ const bookSession = async (req, res) => {
       sessionTitle: title,
       topics: validTopics,
       icebreaker,
-      startDateTime: sessionDate,
+      startDateTime: calendarStartDate,
       duration: 30, // Always 30 minutes
-      timezone: calendarTimezone
+      timezone: speakerTimezone
     });
 
     // Use the Meet link from calendar event (or fallback)

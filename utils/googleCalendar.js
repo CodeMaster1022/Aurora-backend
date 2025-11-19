@@ -378,6 +378,19 @@ const createCalendarEvent = async ({
     const endDateTime = new Date(startDateTime);
     endDateTime.setMinutes(endDateTime.getMinutes() + duration);
 
+    // Format date-time without timezone offset since we specify timeZone separately
+    // The Google Calendar API expects dateTime without timezone offset when timeZone is specified
+    // Format: YYYY-MM-DDTHH:mm:ss (no Z or offset)
+    const formatDateTimeForTimezone = (date) => {
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const hours = String(date.getUTCHours()).padStart(2, '0');
+      const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+      const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+    };
+
     // Create event details
     const eventDetails = {
       summary: sessionTitle || `Session with ${speakerName}`,
@@ -391,11 +404,11 @@ ${icebreaker ? `- Icebreaker: ${icebreaker}` : ''}
 Join the meeting using the link below.
       `.trim(),
       start: {
-        dateTime: startDateTime.toISOString(),
+        dateTime: formatDateTimeForTimezone(startDateTime),
         timeZone: timezone,
       },
       end: {
-        dateTime: endDateTime.toISOString(),
+        dateTime: formatDateTimeForTimezone(endDateTime),
         timeZone: timezone,
       },
       attendees: [

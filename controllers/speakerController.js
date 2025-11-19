@@ -124,14 +124,13 @@ const getDashboard = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { bio, availability, age, cost, location, timezone } = req.body;
+    const { bio, availability, age, cost, location } = req.body;
 
     const updateData = {};
     if (bio !== undefined) updateData.bio = bio;
     if (age !== undefined) updateData.age = age;
     if (cost !== undefined) updateData.cost = cost;
     if (location !== undefined) updateData.location = location;
-    if (timezone !== undefined) updateData.timezone = timezone;
 
     const user = await User.findByIdAndUpdate(
       userId,
