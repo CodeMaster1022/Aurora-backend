@@ -356,20 +356,47 @@ const bookSession = async (req, res) => {
       });
     }
 
-    // Create a Date object representing the date/time in the speaker's timezone
-    // We'll use a timezone-aware approach by creating the date string without Z suffix
-    // and letting the createCalendarEvent function handle timezone conversion
-    // For now, create Date in UTC from the components (will be adjusted by calendar API)
-    // Note: The time string is saved as-is in speaker's timezone
-    const dateTimeString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+    // Helper function to convert local date/time in a specific timezone to UTC Date object
+    const convertToUTCFromTimezone = (year, month, day, hours, minutes, timezone) => {
+      try {
+        // Create a UTC date at the target date/time (as if it were UTC)
+        const tempDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
+        
+        // Get what time this UTC date is in the target timezone
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+        
+        const parts = formatter.formatToParts(tempDate);
+        const tzHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
+        const tzMin = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+        
+        // Calculate the offset: if UTC time shows as H:M in timezone, what's the offset?
+        // If we want H:M in timezone and UTC shows as TZ_H:TZ_M, then offset = TZ_H*60 + TZ_M - (H*60 + M)
+        const desiredTotalMinutes = hours * 60 + minutes;
+        const tzTotalMinutes = tzHour * 60 + tzMin;
+        const offsetMinutes = tzTotalMinutes - desiredTotalMinutes;
+        
+        // Adjust the UTC date by the offset
+        const utcDate = new Date(tempDate);
+        utcDate.setUTCMinutes(utcDate.getUTCMinutes() - offsetMinutes);
+        
+        return utcDate;
+      } catch (error) {
+        console.error('Error converting timezone:', error);
+        // Fallback: assume UTC if conversion fails
+        return new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
+      }
+    };
+
+    // Convert the session date/time from speaker's timezone to UTC for accurate comparison
+    const sessionDateUTC = convertToUTCFromTimezone(year, month, day, hours, minutes, speakerTimezone);
     
-    // Create Date object - we'll use it for day calculation and comparisons
-    // Since we need to work with the date in speaker's timezone, we'll calculate day of week
-    // using the date components directly (UTC date) which matches how frontend calculates it
-    const sessionDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
-    
-    if (isNaN(sessionDate.getTime())) {
-      console.log('Invalid date/time combination:', { date, time, dateTimeString });
+    if (isNaN(sessionDateUTC.getTime())) {
+      console.log('Invalid date/time combination:', { date, time, timezone: speakerTimezone });
       return res.status(400).json({
         success: false,
         message: 'Invalid date format or date/time combination'
@@ -380,16 +407,42 @@ const bookSession = async (req, res) => {
       originalDate: date, 
       originalTime: time,
       timezone: speakerTimezone,
-      parsed: sessionDate.toISOString()
+      parsedUTC: sessionDateUTC.toISOString()
     });
 
     // Validate that session is in the future
+    // Compare dates in the speaker's timezone context
     const now = new Date();
-    if (sessionDate <= now) {
+    
+    // Get current date/time in speaker's timezone
+    const nowInSpeakerTZ = new Intl.DateTimeFormat('en-US', {
+      timeZone: speakerTimezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).formatToParts(now);
+    
+    const nowYear = parseInt(nowInSpeakerTZ.find(p => p.type === 'year')?.value || '0');
+    const nowMonth = parseInt(nowInSpeakerTZ.find(p => p.type === 'month')?.value || '0');
+    const nowDay = parseInt(nowInSpeakerTZ.find(p => p.type === 'day')?.value || '0');
+    const nowHour = parseInt(nowInSpeakerTZ.find(p => p.type === 'hour')?.value || '0');
+    const nowMin = parseInt(nowInSpeakerTZ.find(p => p.type === 'minute')?.value || '0');
+    
+    // Convert current time in speaker's timezone to UTC for comparison
+    const nowUTC = convertToUTCFromTimezone(nowYear, nowMonth, nowDay, nowHour, nowMin, speakerTimezone);
+    
+    if (sessionDateUTC <= nowUTC) {
       console.log('Session is in the past:', { 
-        sessionDate: sessionDate.toISOString(), 
-        now: now.toISOString(),
-        diff: sessionDate - now
+        sessionDateUTC: sessionDateUTC.toISOString(), 
+        nowUTC: nowUTC.toISOString(),
+        nowInSpeakerTZ: `${nowYear}-${String(nowMonth).padStart(2, '0')}-${String(nowDay).padStart(2, '0')} ${String(nowHour).padStart(2, '0')}:${String(nowMin).padStart(2, '0')}`,
+        sessionInSpeakerTZ: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`,
+        timezone: speakerTimezone,
+        diff: sessionDateUTC - nowUTC
       });
       return res.status(400).json({
         success: false,
@@ -399,7 +452,9 @@ const bookSession = async (req, res) => {
 
     // Validate availability - check if speaker is available on the requested day and time
     // Calculate day of week from date components (matches frontend calculation)
-    const dayOfWeek = sessionDate.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    // Use UTC date calculation to match frontend logic
+    const dateForDayCalc = new Date(Date.UTC(year, month - 1, day));
+    const dayOfWeek = dateForDayCalc.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const requestedDay = dayNames[dayOfWeek];
     
@@ -443,11 +498,12 @@ const bookSession = async (req, res) => {
 
     // Check for duplicate/overlapping bookings
     // Sessions are 30 minutes, so check for any overlap
+    // Use UTC date components for query (matching how sessionDateUTC was created)
     const existingSessions = await Session.find({
       speaker: speakerId,
       date: {
-        $gte: new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 0, 0, 0),
-        $lt: new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 23, 59, 59)
+        $gte: new Date(Date.UTC(year, month - 1, day, 0, 0, 0)),
+        $lt: new Date(Date.UTC(year, month - 1, day, 23, 59, 59))
       },
       status: { $in: ['scheduled'] } // Only check scheduled sessions
     });
@@ -494,9 +550,9 @@ const bookSession = async (req, res) => {
     // Since Date objects are UTC internally, we'll create it from components
     // and the createCalendarEvent function will use the timezone parameter
     
-    // Create Date object for calendar event - this represents the date/time in speaker's timezone
-    // The createCalendarEvent function will handle the timezone conversion
-    const calendarStartDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
+    // Create Date object for calendar event - use the UTC converted date
+    // The createCalendarEvent function will format it correctly for the calendar API
+    const calendarStartDate = sessionDateUTC;
     
     const calendarResult = await createCalendarEvent({
       oauthClient,
@@ -520,12 +576,13 @@ const bookSession = async (req, res) => {
       : 0;
 
     // Create the session
+    // Store the date as UTC Date object and time as string in speaker's timezone
     const session = await Session.create({
       title,
       speaker: speakerId,
       learner: learnerId,
-      date: sessionDate,
-      time,
+      date: sessionDateUTC, // Store as UTC Date for database queries
+      time, // Store time string as-is in speaker's timezone
       duration: 30, // Always 30 minutes
       topics: validTopics,
       icebreaker,
