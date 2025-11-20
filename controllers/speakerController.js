@@ -8,7 +8,7 @@ const {
   createOAuthClient, 
   refreshAccessToken 
 } = require('../utils/googleCalendar');
-const { searchYouTubeVideos } = require('../utils/youtube');
+const { searchYouTubeVideos, getPlaylistVideos } = require('../utils/youtube');
 
 const DEFAULT_GIFT_PLAYLIST = [
   { id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up' }, // Rick Astley
@@ -523,7 +523,7 @@ const rateLearner = async (req, res) => {
   }
 };
 
-// @desc    Get a random YouTube song (no repeats for the user)
+// @desc    Get a random YouTube song from the speakers' era playlist (no repeats for the user)
 // @route   GET /api/speaker/gift-song
 // @access  Private (Speaker)
 const getGiftSong = async (req, res) => {
@@ -538,28 +538,35 @@ const getGiftSong = async (req, res) => {
       });
     }
 
-    let playlist = [...DEFAULT_GIFT_PLAYLIST];
+    // The playlist ID from Mónica's selected playlist
+    const SPEAKERS_ERA_PLAYLIST_ID = 'PLBiB9alE5_uImDlLoKvOgB3hXatzs0IPX';
+    
+    let playlist = [...DEFAULT_GIFT_PLAYLIST]; // Fallback to default playlist
 
+    // Try to fetch videos from the specified playlist
     if (process.env.YOUTUBE_API_KEY) {
       try {
-        const requestedQuery = (req.query?.query || req.query?.q || '').toString().trim();
-
-        const dynamicPlaylist = await searchYouTubeVideos({
-          query: requestedQuery.length > 0 ? requestedQuery : undefined,
-          maxResults: 25
+        const playlistVideos = await getPlaylistVideos({
+          playlistId: SPEAKERS_ERA_PLAYLIST_ID,
+          maxResults: 50
         });
 
-        if (dynamicPlaylist.length > 0) {
-          playlist = dynamicPlaylist;
+        if (playlistVideos.length > 0) {
+          playlist = playlistVideos;
+        } else {
+          console.warn('No videos found in playlist, using default playlist');
         }
       } catch (youtubeError) {
-        console.error('YouTube search error:', youtubeError);
+        console.error('YouTube playlist error:', youtubeError);
+        // Fall back to default playlist if playlist fetch fails
+        console.log('Falling back to default playlist');
       }
     }
 
     const viewedSongs = Array.isArray(user.viewedSongs) ? user.viewedSongs : [];
     let availableSongs = playlist.filter(song => song && song.id && !viewedSongs.includes(song.id));
 
+    // If all songs have been viewed, reset and start over
     if (availableSongs.length === 0) {
       user.viewedSongs = [];
       await user.save();
@@ -588,7 +595,8 @@ const getGiftSong = async (req, res) => {
       await user.save();
     }
 
-    const youtubeUrl = `https://www.youtube.com/watch?v=${songToReturn.id}`;
+    // Return URL that plays the video (which will show the playlist in the sidebar)
+    const youtubeUrl = `https://www.youtube.com/watch?v=${songToReturn.id}&list=${SPEAKERS_ERA_PLAYLIST_ID}`;
 
     res.json({
       success: true,
