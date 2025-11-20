@@ -146,7 +146,7 @@ const rateSession = async (req, res) => {
       session: sessionId,
       from: userId
     });
-    console.log(existingReview,'existing review')
+    // console.log(existingReview,'existing review')
     if (existingReview) {
       return res.status(400).json({
         success: false,
@@ -396,19 +396,19 @@ const bookSession = async (req, res) => {
     const sessionDateUTC = convertToUTCFromTimezone(year, month, day, hours, minutes, speakerTimezone);
     
     if (isNaN(sessionDateUTC.getTime())) {
-      console.log('Invalid date/time combination:', { date, time, timezone: speakerTimezone });
+      // console.log('Invalid date/time combination:', { date, time, timezone: speakerTimezone });
       return res.status(400).json({
         success: false,
         message: 'Invalid date format or date/time combination'
       });
     }
 
-    console.log('Parsed session date:', { 
-      originalDate: date, 
-      originalTime: time,
-      timezone: speakerTimezone,
-      parsedUTC: sessionDateUTC.toISOString()
-    });
+    // console.log('Parsed session date:', { 
+    //   originalDate: date, 
+    //   originalTime: time,
+    //   timezone: speakerTimezone,
+    //   parsedUTC: sessionDateUTC.toISOString()
+    // });
 
     // Validate that session is in the future
     // Compare dates in the speaker's timezone context
@@ -436,14 +436,14 @@ const bookSession = async (req, res) => {
     const nowUTC = convertToUTCFromTimezone(nowYear, nowMonth, nowDay, nowHour, nowMin, speakerTimezone);
     
     if (sessionDateUTC <= nowUTC) {
-      console.log('Session is in the past:', { 
-        sessionDateUTC: sessionDateUTC.toISOString(), 
-        nowUTC: nowUTC.toISOString(),
-        nowInSpeakerTZ: `${nowYear}-${String(nowMonth).padStart(2, '0')}-${String(nowDay).padStart(2, '0')} ${String(nowHour).padStart(2, '0')}:${String(nowMin).padStart(2, '0')}`,
-        sessionInSpeakerTZ: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`,
-        timezone: speakerTimezone,
-        diff: sessionDateUTC - nowUTC
-      });
+      // console.log('Session is in the past:', { 
+      //   sessionDateUTC: sessionDateUTC.toISOString(), 
+      //   nowUTC: nowUTC.toISOString(),
+      //   nowInSpeakerTZ: `${nowYear}-${String(nowMonth).padStart(2, '0')}-${String(nowDay).padStart(2, '0')} ${String(nowHour).padStart(2, '0')}:${String(nowMin).padStart(2, '0')}`,
+      //   sessionInSpeakerTZ: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`,
+      //   timezone: speakerTimezone,
+      //   diff: sessionDateUTC - nowUTC
+      // });
       return res.status(400).json({
         success: false,
         message: 'Session must be scheduled for a future date and time'

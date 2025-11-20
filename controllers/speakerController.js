@@ -527,11 +527,14 @@ const rateLearner = async (req, res) => {
 // @route   GET /api/speaker/gift-song
 // @access  Private (Speaker)
 const getGiftSong = async (req, res) => {
+  console.log('=== getGiftSong called ===');
   try {
     const userId = req.user._id;
+    console.log(`Getting gift song for user: ${userId}`);
     const user = await User.findById(userId);
 
     if (!user) {
+      console.error('User not found:', userId);
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -540,64 +543,147 @@ const getGiftSong = async (req, res) => {
 
     // The playlist ID from Mónica's selected playlist
     const SPEAKERS_ERA_PLAYLIST_ID = 'PLBiB9alE5_uImDlLoKvOgB3hXatzs0IPX';
+    console.log(`Using playlist ID: ${SPEAKERS_ERA_PLAYLIST_ID}`);
     
-    let playlist = [...DEFAULT_GIFT_PLAYLIST]; // Fallback to default playlist
-
-    // Try to fetch videos from the specified playlist
-    if (process.env.YOUTUBE_API_KEY) {
-      try {
-        const playlistVideos = await getPlaylistVideos({
-          playlistId: SPEAKERS_ERA_PLAYLIST_ID,
-          maxResults: 50
-        });
-
-        if (playlistVideos.length > 0) {
-          playlist = playlistVideos;
-        } else {
-          console.warn('No videos found in playlist, using default playlist');
-        }
-      } catch (youtubeError) {
-        console.error('YouTube playlist error:', youtubeError);
-        // Fall back to default playlist if playlist fetch fails
-        console.log('Falling back to default playlist');
-      }
+    // MUST fetch from the specified playlist - no fallback
+    if (!process.env.YOUTUBE_API_KEY) {
+      console.error('YouTube API key is not configured');
+      return res.status(500).json({
+        success: false,
+        message: 'YouTube API key is not configured. Cannot fetch playlist songs.'
+      });
     }
 
+    console.log('YouTube API key found, fetching playlist...');
+    let playlist = [];
+
+    try {
+      console.log(`Calling getPlaylistVideos with playlistId: ${SPEAKERS_ERA_PLAYLIST_ID}`);
+      const playlistVideos = await getPlaylistVideos({
+        playlistId: SPEAKERS_ERA_PLAYLIST_ID,
+        maxResults: 50
+      });
+
+      console.log(`getPlaylistVideos returned ${playlistVideos.length} videos`);
+
+      if (playlistVideos.length === 0) {
+        console.error('No videos found in playlist');
+        return res.status(500).json({
+          success: false,
+          message: 'No videos found in the specified playlist. Please contact support.'
+        });
+      }
+
+      playlist = playlistVideos;
+      console.log(`Successfully fetched ${playlist.length} videos from playlist ${SPEAKERS_ERA_PLAYLIST_ID}`);
+      console.log('First 3 video IDs from playlist:', playlist.slice(0, 3).map(v => v.id));
+    } catch (youtubeError) {
+      console.error('YouTube playlist error:', youtubeError);
+      console.error('Error details:', {
+        message: youtubeError.message,
+        code: youtubeError.code,
+        stack: youtubeError.stack
+      });
+      return res.status(500).json({
+        success: false,
+        message: `Failed to fetch playlist: ${youtubeError.message || 'Unknown error'}`
+      });
+    }
+
+    // Create a Set of valid video IDs from the playlist for validation
+    const validPlaylistVideoIds = new Set(playlist.map(song => song.id).filter(Boolean));
+    console.log(`Playlist contains ${validPlaylistVideoIds.size} valid videos`);
+    console.log('Sample video IDs from playlist:', Array.from(validPlaylistVideoIds).slice(0, 5));
+
     const viewedSongs = Array.isArray(user.viewedSongs) ? user.viewedSongs : [];
-    let availableSongs = playlist.filter(song => song && song.id && !viewedSongs.includes(song.id));
+    console.log(`User has viewed ${viewedSongs.length} songs previously`);
+    if (viewedSongs.length > 0) {
+      console.log('Previously viewed song IDs:', viewedSongs.slice(0, 10));
+    }
+    
+    // Filter to only include songs from the playlist that haven't been viewed
+    console.log('Filtering available songs...');
+    let availableSongs = playlist.filter(song => {
+      if (!song || !song.id) {
+        console.warn('Filtering out song without ID:', song);
+        return false;
+      }
+      // Ensure the song ID is in our valid playlist set (double-check)
+      if (!validPlaylistVideoIds.has(song.id)) {
+        console.warn(`Warning: Song ID ${song.id} not found in playlist validation set`);
+        return false;
+      }
+      const isViewed = viewedSongs.includes(song.id);
+      if (isViewed) {
+        console.log(`Song ${song.id} (${song.title}) already viewed, skipping`);
+      }
+      return !isViewed;
+    });
+
+    console.log(`Found ${availableSongs.length} available songs (not yet viewed)`);
 
     // If all songs have been viewed, reset and start over
     if (availableSongs.length === 0) {
+      console.log('All songs viewed, resetting viewedSongs array');
       user.viewedSongs = [];
       await user.save();
-      availableSongs = playlist.filter(song => song && song.id);
+      availableSongs = playlist.filter(song => {
+        if (!song || !song.id) return false;
+        return validPlaylistVideoIds.has(song.id);
+      });
+      console.log(`After reset, ${availableSongs.length} songs available`);
     }
 
     if (availableSongs.length === 0) {
+      console.error('No songs available after all filtering');
       return res.status(500).json({
         success: false,
         message: 'No songs available. Please try again later.'
       });
     }
 
+    console.log(`Selecting random song from ${availableSongs.length} available songs`);
     const randomIndex = Math.floor(Math.random() * availableSongs.length);
+    console.log(`Random index selected: ${randomIndex}`);
     const songToReturn = availableSongs[randomIndex];
 
     if (!songToReturn || !songToReturn.id) {
+      console.error('Invalid song data returned:', songToReturn);
       return res.status(500).json({
         success: false,
         message: 'Invalid song data. Please try again.'
       });
     }
 
+    // Verify the selected song is actually in the playlist
+    if (!validPlaylistVideoIds.has(songToReturn.id)) {
+      console.error(`ERROR: Selected song ${songToReturn.id} is not in the playlist!`);
+      console.error('Selected song:', songToReturn);
+      console.error('Valid playlist IDs:', Array.from(validPlaylistVideoIds).slice(0, 10));
+      return res.status(500).json({
+        success: false,
+        message: 'Selected song is not in the playlist. Please try again.'
+      });
+    }
+
+    // Log the selected song for debugging
+    console.log(`✓ Selected random song from playlist: "${songToReturn.title}" (ID: ${songToReturn.id})`);
+    console.log(`✓ Song is validated in playlist: ${validPlaylistVideoIds.has(songToReturn.id)}`);
+
     if (!user.viewedSongs.includes(songToReturn.id)) {
+      console.log(`Adding song ${songToReturn.id} to viewedSongs array`);
       user.viewedSongs.push(songToReturn.id);
       await user.save();
+      console.log(`User now has ${user.viewedSongs.length} viewed songs`);
+    } else {
+      console.log(`Song ${songToReturn.id} already in viewedSongs, not adding again`);
     }
 
     // Return URL that plays the video (which will show the playlist in the sidebar)
     const youtubeUrl = `https://www.youtube.com/watch?v=${songToReturn.id}&list=${SPEAKERS_ERA_PLAYLIST_ID}`;
+    console.log(`Generated YouTube URL: ${youtubeUrl}`);
 
+    console.log('=== Returning success response ===');
     res.json({
       success: true,
       data: {
@@ -607,7 +693,10 @@ const getGiftSong = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get gift song error:', error);
+    console.error('=== Get gift song error ===');
+    console.error('Error:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: error.message || 'Server error'

@@ -79,19 +79,24 @@ const searchYouTubeVideos = async (options = {}) => {
  * @returns {Promise<Array<{ id: string, title: string }>>}
  */
 const getPlaylistVideos = async (options = {}) => {
+  console.log('=== getPlaylistVideos called ===');
   const apiKey = process.env.YOUTUBE_API_KEY;
 
   if (!apiKey) {
+    console.error('YouTube API key is not configured');
     throw new Error('YouTube API key is not configured');
   }
 
   const { playlistId, maxResults = 50 } = options;
+  console.log(`getPlaylistVideos params: playlistId=${playlistId}, maxResults=${maxResults}`);
 
   if (!playlistId) {
+    console.error('Playlist ID is required but not provided');
     throw new Error('Playlist ID is required');
   }
 
   try {
+    console.log('Creating YouTube API client...');
     const youtube = google.youtube({
       version: 'v3',
       auth: apiKey
@@ -99,8 +104,11 @@ const getPlaylistVideos = async (options = {}) => {
 
     const allVideos = [];
     let nextPageToken = null;
+    let pageCount = 0;
 
     do {
+      pageCount++;
+      console.log(`Fetching playlist page ${pageCount}...`);
       const response = await youtube.playlistItems.list({
         part: 'snippet,contentDetails',
         playlistId: playlistId,
@@ -109,16 +117,28 @@ const getPlaylistVideos = async (options = {}) => {
       });
 
       const items = response.data.items || [];
+      console.log(`Received ${items.length} items from API for page ${pageCount}`);
 
       const videos = items
-        .filter(item => item.contentDetails && item.contentDetails.videoId)
+        .filter(item => {
+          if (!item.contentDetails || !item.contentDetails.videoId) {
+            console.warn('Skipping playlist item without videoId:', item.id);
+            return false;
+          }
+          return true;
+        })
         .map(item => ({
           id: item.contentDetails.videoId,
           title: item.snippet?.title || 'YouTube Video'
         }));
 
+      console.log(`Processed ${videos.length} valid videos from page ${pageCount} (total so far: ${allVideos.length + videos.length})`);
+      if (videos.length > 0) {
+        console.log(`Sample video from page ${pageCount}:`, videos[0]);
+      }
       allVideos.push(...videos);
       nextPageToken = response.data.nextPageToken || null;
+      console.log(`Next page token: ${nextPageToken ? 'exists' : 'none'}`);
 
       // Limit to prevent infinite loops (safety measure)
       if (allVideos.length > 500) {
@@ -126,6 +146,12 @@ const getPlaylistVideos = async (options = {}) => {
         break;
       }
     } while (nextPageToken);
+
+    console.log(`=== Finished fetching playlist ===`);
+    console.log(`Total videos fetched: ${allVideos.length}`);
+    if (allVideos.length > 0) {
+      console.log('First 3 video IDs:', allVideos.slice(0, 3).map(v => ({ id: v.id, title: v.title })));
+    }
 
     if (allVideos.length === 0) {
       console.warn('YouTube API returned no videos for playlist:', playlistId);
