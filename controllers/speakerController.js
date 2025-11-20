@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Session = require('../models/Session');
 const Review = require('../models/Review');
+const Playlist = require('../models/Playlist');
 const { uploadImage } = require('../utils/cloudinary');
 const { 
   getAuthUrl, 
@@ -545,49 +546,98 @@ const getGiftSong = async (req, res) => {
     const SPEAKERS_ERA_PLAYLIST_ID = 'PLBiB9alE5_uImDlLoKvOgB3hXatzs0IPX';
     console.log(`Using playlist ID: ${SPEAKERS_ERA_PLAYLIST_ID}`);
     
-    // MUST fetch from the specified playlist - no fallback
-    if (!process.env.YOUTUBE_API_KEY) {
-      console.error('YouTube API key is not configured');
-      return res.status(500).json({
-        success: false,
-        message: 'YouTube API key is not configured. Cannot fetch playlist songs.'
-      });
+    // Check if we should force refresh from API (optional query parameter)
+    const forceRefresh = req.query?.refresh === 'true';
+    
+    let playlist = [];
+    let playlistFromDB = null;
+
+    // First, try to get playlist from database
+    if (!forceRefresh) {
+      console.log('Checking database for existing playlist...');
+      playlistFromDB = await Playlist.findOne({ playlistId: SPEAKERS_ERA_PLAYLIST_ID });
+      
+      if (playlistFromDB && playlistFromDB.videos && playlistFromDB.videos.length > 0) {
+        console.log(`Found playlist in DB with ${playlistFromDB.videos.length} videos`);
+        console.log(`Playlist last updated: ${playlistFromDB.lastUpdated}`);
+        playlist = playlistFromDB.videos;
+      } else {
+        console.log('No playlist found in database, will fetch from API');
+      }
+    } else {
+      console.log('Force refresh requested, will fetch from API');
     }
 
-    console.log('YouTube API key found, fetching playlist...');
-    let playlist = [];
-
-    try {
-      console.log(`Calling getPlaylistVideos with playlistId: ${SPEAKERS_ERA_PLAYLIST_ID}`);
-      const playlistVideos = await getPlaylistVideos({
-        playlistId: SPEAKERS_ERA_PLAYLIST_ID,
-        maxResults: 50
-      });
-
-      console.log(`getPlaylistVideos returned ${playlistVideos.length} videos`);
-
-      if (playlistVideos.length === 0) {
-        console.error('No videos found in playlist');
+    // If not in DB or force refresh, fetch from YouTube API
+    if (playlist.length === 0) {
+      console.log('Fetching playlist from YouTube API...');
+      
+      if (!process.env.YOUTUBE_API_KEY) {
+        console.error('YouTube API key is not configured');
         return res.status(500).json({
           success: false,
-          message: 'No videos found in the specified playlist. Please contact support.'
+          message: 'YouTube API key is not configured. Cannot fetch playlist songs.'
         });
       }
 
-      playlist = playlistVideos;
-      console.log(`Successfully fetched ${playlist.length} videos from playlist ${SPEAKERS_ERA_PLAYLIST_ID}`);
-      console.log('First 3 video IDs from playlist:', playlist.slice(0, 3).map(v => v.id));
-    } catch (youtubeError) {
-      console.error('YouTube playlist error:', youtubeError);
-      console.error('Error details:', {
-        message: youtubeError.message,
-        code: youtubeError.code,
-        stack: youtubeError.stack
-      });
-      return res.status(500).json({
-        success: false,
-        message: `Failed to fetch playlist: ${youtubeError.message || 'Unknown error'}`
-      });
+      try {
+        console.log(`Calling getPlaylistVideos with playlistId: ${SPEAKERS_ERA_PLAYLIST_ID}`);
+        const playlistVideos = await getPlaylistVideos({
+          playlistId: SPEAKERS_ERA_PLAYLIST_ID,
+          maxResults: 50
+        });
+
+        console.log(`getPlaylistVideos returned ${playlistVideos.length} videos`);
+
+        if (playlistVideos.length === 0) {
+          console.error('No videos found in playlist');
+          return res.status(500).json({
+            success: false,
+            message: 'No videos found in the specified playlist. Please contact support.'
+          });
+        }
+
+        playlist = playlistVideos;
+        console.log(`Successfully fetched ${playlist.length} videos from playlist ${SPEAKERS_ERA_PLAYLIST_ID}`);
+        console.log('First 3 video IDs from playlist:', playlist.slice(0, 3).map(v => v.id));
+
+        // Save or update playlist in database
+        if (playlistFromDB) {
+          console.log('Updating existing playlist in database...');
+          playlistFromDB.videos = playlist;
+          playlistFromDB.totalVideos = playlist.length;
+          playlistFromDB.lastUpdated = new Date();
+          await playlistFromDB.save();
+          console.log('Playlist updated in database');
+        } else {
+          console.log('Creating new playlist entry in database...');
+          await Playlist.create({
+            playlistId: SPEAKERS_ERA_PLAYLIST_ID,
+            videos: playlist,
+            totalVideos: playlist.length,
+            lastUpdated: new Date()
+          });
+          console.log('Playlist saved to database');
+        }
+      } catch (youtubeError) {
+        console.error('YouTube playlist error:', youtubeError);
+        console.error('Error details:', {
+          message: youtubeError.message,
+          code: youtubeError.code,
+          stack: youtubeError.stack
+        });
+        
+        // If we have a cached version, use it as fallback
+        if (playlistFromDB && playlistFromDB.videos && playlistFromDB.videos.length > 0) {
+          console.log('Using cached playlist from database as fallback');
+          playlist = playlistFromDB.videos;
+        } else {
+          return res.status(500).json({
+            success: false,
+            message: `Failed to fetch playlist: ${youtubeError.message || 'Unknown error'}`
+          });
+        }
+      }
     }
 
     // Create a Set of valid video IDs from the playlist for validation
