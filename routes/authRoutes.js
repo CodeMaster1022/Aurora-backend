@@ -7,7 +7,9 @@ const {
   loginUser,
   getCurrentUser,
   logoutUser,
-  acceptTerms
+  acceptTerms,
+  forgotPassword,
+  resetPassword
 } = require('../controllers/authController');
 const { authenticateToken } = require('../middleware/auth');
 
@@ -35,6 +37,8 @@ const upload = multer({
 router.post('/signup', registerUser);
 router.post('/speaker/signup', upload.single('avatar'), registerSpeaker);
 router.post('/login', loginUser);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 
 // Protected routes
 router.get('/me', authenticateToken, getCurrentUser);
