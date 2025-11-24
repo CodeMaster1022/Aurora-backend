@@ -11,6 +11,7 @@ const {
   getValidOAuthClient
 } = require('../utils/googleCalendar');
 const { createDonationCheckout } = require('../utils/stripe');
+const { notifySessionBooked, notifySessionCancelled } = require('../utils/notificationService');
 
 // @desc    Get learner dashboard data
 // @route   GET /api/learner/dashboard
@@ -593,8 +594,17 @@ const bookSession = async (req, res) => {
       currency: 'usd'
     });
 
-    // Populate speaker data for response
+    // Populate speaker and learner data for response
     await session.populate('speaker', 'firstname lastname email');
+    await session.populate('learner', 'firstname lastname email');
+
+    // Send notifications
+    try {
+      await notifySessionBooked(session, speaker, learner);
+    } catch (notifError) {
+      console.error('Error sending notifications:', notifError);
+      // Don't fail the request if notification fails
+    }
 
     res.status(201).json({
       success: true,
@@ -676,8 +686,18 @@ const cancelSession = async (req, res) => {
     session.cancelledBy = learnerId;
     await session.save();
 
-    // Note: Email notifications removed per previous request
-    // If you want to notify speaker, you can add that logic here
+    // Populate learner for notification
+    await session.populate('learner', 'firstname lastname email');
+
+    // Send notification to speaker
+    try {
+      const learner = await User.findById(learnerId);
+      const speaker = session.speaker;
+      await notifySessionCancelled(session, learner, speaker);
+    } catch (notifError) {
+      console.error('Error sending cancellation notification:', notifError);
+      // Don't fail the request if notification fails
+    }
 
     res.json({
       success: true,

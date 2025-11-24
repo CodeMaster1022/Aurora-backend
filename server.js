@@ -66,6 +66,7 @@ app.use('/api/speaker', speakerRoutes);
 app.use('/api/speakers', speakerPublicRoutes);
 app.use('/api/learner', require('./routes/learnerRoutes'));
 app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', require('./routes/notificationRoutes'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

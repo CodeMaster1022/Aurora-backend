@@ -10,6 +10,11 @@ const {
   refreshAccessToken 
 } = require('../utils/googleCalendar');
 const { searchYouTubeVideos, getPlaylistVideos } = require('../utils/youtube');
+const { 
+  notifySessionCancelled, 
+  notifySessionCompleted,
+  notifyReviewReceived 
+} = require('../utils/notificationService');
 
 const DEFAULT_GIFT_PLAYLIST = [
   { id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up' }, // Rick Astley
@@ -508,7 +513,17 @@ const rateLearner = async (req, res) => {
     });
 
     // Populate the review
-    await review.populate('to', 'firstname lastname');
+    await review.populate('to', 'firstname lastname email');
+    await review.populate('from', 'firstname lastname email');
+
+    // Send notification to reviewed user
+    try {
+      const reviewedUser = await User.findById(session.learner);
+      await notifyReviewReceived(review, reviewedUser);
+    } catch (notifError) {
+      console.error('Error sending review notification:', notifError);
+      // Don't fail the request if notification fails
+    }
 
     res.json({
       success: true,
@@ -809,8 +824,18 @@ const cancelSession = async (req, res) => {
     session.cancelledBy = speakerId;
     await session.save();
 
-    // Note: Email notifications removed per previous request
-    // If you want to notify learner, you can add that logic here
+    // Populate speaker for notification
+    await session.populate('speaker', 'firstname lastname email');
+
+    // Send notification to learner
+    try {
+      const speaker = await User.findById(speakerId);
+      const learner = session.learner;
+      await notifySessionCancelled(session, speaker, learner);
+    } catch (notifError) {
+      console.error('Error sending cancellation notification:', notifError);
+      // Don't fail the request if notification fails
+    }
 
     res.json({
       success: true,
@@ -851,6 +876,21 @@ const completeSession = async (req, res) => {
     // Update session status to completed
     session.status = 'completed';
     await session.save();
+
+    // Populate session data for notifications
+    await session.populate('speaker', 'firstname lastname email');
+    await session.populate('learner', 'firstname lastname email');
+
+    // Send notifications
+    try {
+      const speaker = await User.findById(speakerId);
+      const learner = session.learner;
+      await notifySessionCompleted(session, speaker, 'speaker');
+      await notifySessionCompleted(session, learner, 'learner');
+    } catch (notifError) {
+      console.error('Error sending completion notifications:', notifError);
+      // Don't fail the request if notification fails
+    }
 
     res.json({
       success: true,

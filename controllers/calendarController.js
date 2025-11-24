@@ -7,6 +7,7 @@ const {
   getValidOAuthClient,
   getCalendarTimezone
 } = require('../utils/googleCalendar');
+const { notifyCalendarConnected } = require('../utils/notificationService');
 
 // @desc    Initiate Google Calendar OAuth connection
 // @route   GET /api/speaker/calendar/auth-url
@@ -82,6 +83,14 @@ const handleCalendarCallback = async (req, res) => {
         success: false,
         message: 'User not found'
       });
+    }
+
+    // Send notification
+    try {
+      await notifyCalendarConnected(user);
+    } catch (notifError) {
+      console.error('Error sending calendar connection notification:', notifError);
+      // Don't fail the request if notification fails
     }
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
