@@ -2,6 +2,11 @@ const nodemailer = require('nodemailer');
 
 // Create reusable transporter object using SMTP transport
 const createTransporter = () => {
+  // Validate required environment variables
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    throw new Error('EMAIL_USER and EMAIL_PASS environment variables are required');
+  }
+
   return nodemailer.createTransport({
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.EMAIL_PORT || '587'),
@@ -9,6 +14,9 @@ const createTransporter = () => {
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
+    },
+    tls: {
+      rejectUnauthorized: false
     }
   });
 };
@@ -16,7 +24,17 @@ const createTransporter = () => {
 // Send password reset email
 const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
   try {
+    // Validate email configuration before creating transporter
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      console.error('Email configuration missing: EMAIL_USER or EMAIL_PASS not set');
+      throw new Error('Email service is not configured. Please contact support.');
+    }
+
     const transporter = createTransporter();
+    
+    // Verify connection
+    await transporter.verify();
+    console.log('Email server connection verified');
     
     const emailFrom = process.env.EMAIL_FROM || 'Aesthetics HQ';
     const fromAddress = process.env.EMAIL_USER;
@@ -68,11 +86,21 @@ const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('Password reset email sent:', info.messageId);
+    console.log('Password reset email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
     console.error('Error sending password reset email:', error);
-    throw new Error('Failed to send password reset email');
+    
+    // Provide more specific error messages
+    if (error.code === 'EAUTH') {
+      throw new Error('Email authentication failed. Please check EMAIL_USER and EMAIL_PASS.');
+    } else if (error.code === 'ECONNECTION') {
+      throw new Error('Failed to connect to email server. Please check EMAIL_HOST and EMAIL_PORT.');
+    } else if (error.message && error.message.includes('EMAIL_USER')) {
+      throw error; // Re-throw configuration errors
+    } else {
+      throw new Error(`Failed to send password reset email: ${error.message || 'Unknown error'}`);
+    }
   }
 };
 

@@ -419,9 +419,17 @@ const forgotPassword = async (req, res) => {
       user.resetTokenExpiry = null;
       await user.save();
       
+      // Provide more specific error message
+      const errorMessage = emailError.message || 'Failed to send password reset email. Please try again later.';
+      console.error('Detailed email error:', {
+        message: emailError.message,
+        code: emailError.code,
+        stack: emailError.stack
+      });
+      
       return res.status(500).json({
         success: false,
-        message: 'Failed to send password reset email. Please try again later.'
+        message: errorMessage
       });
     }
 
