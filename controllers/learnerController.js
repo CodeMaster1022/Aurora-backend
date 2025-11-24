@@ -587,6 +587,7 @@ const bookSession = async (req, res) => {
       topics: validTopics,
       icebreaker,
       meetingLink: meetLink,
+      calendarEventId: calendarResult.eventId || null, // Store calendar event ID for future use
       status: 'scheduled',
       price: sessionPrice,
       currency: 'usd'
