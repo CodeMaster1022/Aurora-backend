@@ -2,7 +2,7 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { uploadImage } = require('../utils/cloudinary');
-const { sendPasswordResetEmail } = require('../utils/email');
+const { sendPasswordResetEmail, sendOTPEmail } = require('../utils/email');
 
 // Generate JWT token
 const generateToken = (userId) => {
@@ -86,15 +86,29 @@ const registerUser = async (req, res) => {
 
     const user = await User.create(userData);
 
-    // Generate token
-    const token = generateToken(user._id);
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save OTP to user
+    user.otp = otp;
+    user.otpExpiry = otpExpiry;
+    await user.save();
+
+    // Send OTP email
+    try {
+      await sendOTPEmail(user.email, otp, user.firstname);
+    } catch (emailError) {
+      console.error('Error sending OTP email:', emailError);
+      // Don't fail registration if email fails, but log it
+    }
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: 'Registration successful. Please verify your email with the OTP sent to your email address.',
       data: {
         user: formatUserResponse(user),
-        token
+        requiresVerification: true
       }
     });
   } catch (error) {
@@ -201,15 +215,29 @@ const registerSpeaker = async (req, res) => {
       privacyAcceptedAt: new Date()
     });
 
-    // Generate token
-    const token = generateToken(user._id);
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save OTP to user
+    user.otp = otp;
+    user.otpExpiry = otpExpiry;
+    await user.save();
+
+    // Send OTP email
+    try {
+      await sendOTPEmail(user.email, otp, user.firstname);
+    } catch (emailError) {
+      console.error('Error sending OTP email:', emailError);
+      // Don't fail registration if email fails, but log it
+    }
 
     res.status(201).json({
       success: true,
-      message: 'Speaker registered successfully',
+      message: 'Speaker registered successfully. Please verify your email with the OTP sent to your email address.',
       data: {
         user: formatUserResponse(user),
-        token
+        requiresVerification: true
       }
     });
   } catch (error) {
@@ -502,6 +530,133 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// @desc    Verify OTP
+// @route   POST /api/auth/verify-otp
+// @access  Public
+const verifyOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    // Validate input
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and OTP'
+      });
+    }
+
+    // Find user with matching OTP
+    const user = await User.findOne({
+      email: email.toLowerCase(),
+      otp: otp,
+      otpExpiry: { $gt: new Date() } // OTP must not be expired
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired OTP'
+      });
+    }
+
+    // Verify email
+    user.isEmailVerified = true;
+    user.otp = null;
+    user.otpExpiry = null;
+    await user.save();
+
+    // Generate token
+    const token = generateToken(user._id);
+
+    res.json({
+      success: true,
+      message: 'Email verified successfully',
+      data: {
+        user: formatUserResponse(user),
+        token
+      }
+    });
+  } catch (error) {
+    console.error('Verify OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error during OTP verification'
+    });
+  }
+};
+
+// @desc    Resend OTP
+// @route   POST /api/auth/resend-otp
+// @access  Public
+const resendOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Validate input
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an email address'
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({ email: email.toLowerCase() });
+    
+    if (!user) {
+      // Always return success to prevent email enumeration
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists, a new OTP has been sent.'
+      });
+    }
+
+    // Check if already verified
+    if (user.isEmailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is already verified'
+      });
+    }
+
+    // Generate new 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save OTP to user
+    user.otp = otp;
+    user.otpExpiry = otpExpiry;
+    await user.save();
+
+    // Send OTP email
+    try {
+      await sendOTPEmail(user.email, otp, user.firstname);
+    } catch (emailError) {
+      console.error('Error sending OTP email:', emailError);
+      // Clear the OTP if email fails
+      user.otp = null;
+      user.otpExpiry = null;
+      await user.save();
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP email. Please try again later.'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'If an account with that email exists, a new OTP has been sent.'
+    });
+  } catch (error) {
+    console.error('Resend OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error during OTP resend'
+    });
+  }
+};
+
 module.exports = {
   registerUser,
   registerSpeaker,
@@ -510,5 +665,7 @@ module.exports = {
   logoutUser,
   acceptTerms,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  verifyOTP,
+  resendOTP
 };

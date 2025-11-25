@@ -9,7 +9,9 @@ const {
   logoutUser,
   acceptTerms,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  verifyOTP,
+  resendOTP
 } = require('../controllers/authController');
 const { authenticateToken } = require('../middleware/auth');
 
@@ -39,6 +41,8 @@ router.post('/speaker/signup', upload.single('avatar'), registerSpeaker);
 router.post('/login', loginUser);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
+router.post('/verify-otp', verifyOTP);
+router.post('/resend-otp', resendOTP);
 
 // Protected routes
 router.get('/me', authenticateToken, getCurrentUser);
